@@ -2,17 +2,17 @@
 
 GoPD를 다른 Go 패키지에서 사용할 때 호출할 수 있는 API 목록입니다. 현재 공개 함수는 **12개**, 공개 타입의 메서드는 **12개**입니다. 타입·필드·상수 전체 목록은 `go doc -all .`로 확인할 수 있습니다.
 
-모듈 경로는 `github.com/MyungSub0519/GoPD`, 패키지 이름은 `pdf`입니다.
+모듈 경로는 `github.com/MyungSub0519/gopd`, 패키지 이름은 `gopd`입니다.
 
 ```go
-import pdf "github.com/MyungSub0519/GoPD"
+import "github.com/MyungSub0519/gopd"
 ```
 
-아래 시그니처는 패키지 내부 선언과 동일하게 `pdf.` 접두어를 생략했습니다. 외부에서는 `pdf.ParsePDF`, `pdf.ReadOptions`, `pdf.ObjectID`처럼 사용합니다.
+아래 시그니처는 패키지 내부 선언과 동일하게 `gopd.` 접두어를 생략했습니다. 외부에서는 `gopd.ParsePDF`, `gopd.ReadOptions`, `gopd.ObjectID`처럼 사용합니다.
 
 ## 기본 진입점
 
-파일 경로 하나로 기본 결과가 필요하면 `pdf.ParsePDF`를 호출합니다.
+파일 경로 하나로 기본 결과가 필요하면 `gopd.ParsePDF`를 호출합니다.
 
 ```go
 package main
@@ -21,11 +21,11 @@ import (
     "fmt"
     "log"
 
-    pdf "github.com/MyungSub0519/GoPD"
+    "github.com/MyungSub0519/gopd"
 )
 
 func main() {
-    doc, err := pdf.ParsePDF("테스트PDF.pdf")
+    doc, err := gopd.ParsePDF("테스트PDF.pdf")
     if err != nil {
         log.Fatal(err)
     }
@@ -38,9 +38,9 @@ func main() {
 }
 ```
 
-반환된 `*PDF`의 공개 필드는 `Texts [][]Text`, `Graphics [][]Graphic` 두 개입니다. 바깥 배열은 페이지 순서이며 요소가 없는 페이지는 빈 배열 `[]`로 유지합니다. 페이지 정보·이미지·진단을 포함한 상세 결과는 `doc.Details()`로 접근합니다. 반환 필드와 JSON 사용법은 [기본 PDF API](basic-pdf.md)를 참고하세요.
+반환된 `*PDF`의 공개 필드는 `Texts [][]Text`, `Graphics [][]Graphic` 두 개입니다. 바깥 배열은 페이지 순서이며 요소가 없는 페이지는 빈 배열 `[]`로 유지합니다. 페이지 정보·이미지·진단을 포함한 상세 결과는 `doc.Details()`로 접근합니다. 반환 필드와 JSON 사용법은 [기본 PDF API](basic-gopd.md)를 참고하세요.
 
-CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조 함수이며 내부에서 `pdf.ParsePDF()`를 호출합니다. 외부 라이브러리 사용자는 `pdf.ParsePDF()`를 사용합니다.
+CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조 함수이며 내부에서 `gopd.ParsePDF()`를 호출합니다. 외부 라이브러리 사용자는 `gopd.ParsePDF()`를 사용합니다.
 
 ## 1. PDF 파싱 함수 — 6개
 
@@ -127,7 +127,7 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 
 `Name` 키에는 앞의 `/`를 붙이지 않습니다. 예를 들어 PDF의 `/Pages`는 `dictionary.Get("Pages")`로 조회합니다. `Get`과 `GetAll`은 저장된 값을 반환하며 간접 참조를 자동으로 해석하지 않습니다.
 
-키 누락은 공개 오류 변수 `pdf.ErrMissingKey`를 감싼 오류로 반환하므로 `errors.Is(err, pdf.ErrMissingKey)`로 확인할 수 있습니다. 중복 키 오류와는 구분됩니다.
+키 누락은 공개 오류 변수 `gopd.ErrMissingKey`를 감싼 오류로 반환하므로 `errors.Is(err, gopd.ErrMissingKey)`로 확인할 수 있습니다. 중복 키 오류와는 구분됩니다.
 
 구현: [values.go](../values.go).
 
@@ -163,6 +163,6 @@ go doc -all .
 
 공개 함수나 메서드를 추가·변경할 때 이 문서의 시그니처와 개수도 함께 갱신합니다.
 
-- [기본 PDF API와 JSON 저장](basic-pdf.md)
+- [기본 PDF API와 JSON 저장](basic-gopd.md)
 - [상세 JSON 구조](json-structure.md)
 - [프로젝트 README](../README.md)

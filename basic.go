@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 // ParsePDF snapshots a file and returns basic text and graphics grouped by page.
 // It retains eager detailed analysis for Details; it is not selective parsing.

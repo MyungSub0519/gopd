@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ type syntaxError struct {
 }
 
 func (e *syntaxError) Error() string {
-	return fmt.Sprintf("pdf: source %d byte %d: %s", e.Position.Source, e.Position.Offset, e.Message)
+	return fmt.Sprintf("gopd: source %d byte %d: %s", e.Position.Source, e.Position.Offset, e.Message)
 }
 
 // Lex scans one complete byte range, preserving whitespace and comments as

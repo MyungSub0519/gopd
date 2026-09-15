@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	pdf "github.com/MyungSub0519/GoPD"
+	"github.com/MyungSub0519/gopd"
 )
 
 type pageSummary struct {
@@ -30,8 +30,9 @@ type summary struct {
 	PageDetails    []pageSummary `json:"page_details"`
 }
 
-func pdfparse(path string) (*pdf.PDF, error) {
-	return pdf.ParsePDF(path)
+// pdfparse returns the basic PDF object. Detailed data is available via Details().
+func pdfparse(path string) (*gopd.PDF, error) {
+	return gopd.ParsePDF(path)
 }
 
 func run(args []string, out, stderr io.Writer) int {

@@ -9,11 +9,11 @@ import (
     "fmt"
     "log"
 
-    pdf "github.com/MyungSub0519/GoPD"
+    "github.com/MyungSub0519/gopd"
 )
 
 func main() {
-    doc, err := pdf.ParsePDF("테스트PDF.pdf")
+    doc, err := gopd.ParsePDF("테스트PDF.pdf")
     if err != nil {
         log.Fatal(err)
     }
@@ -30,12 +30,12 @@ func main() {
 CLI의 [main.go](../cmd/gopd/main.go)에는 같은 기능을 호출하는 함수가 있습니다.
 
 ```go
-func pdfparse(path string) (*pdf.PDF, error) {
-    return pdf.ParsePDF(path)
+func pdfparse(path string) (*gopd.PDF, error) {
+    return gopd.ParsePDF(path)
 }
 ```
 
-이 파일의 `run`은 `doc, err := pdfparse(path)`로 기본 객체를 받은 뒤 텍스트나 요약을 출력합니다. 라이브러리 호출 자체는 출력을 하지 않고 객체와 오류를 반환합니다. 다른 패키지에서는 공개 함수 `pdf.ParsePDF`를 사용합니다. 전체 공개 함수·메서드는 [공개 API 목록](public-api.md)을 참고하세요.
+이 파일의 `run`은 `doc, err := pdfparse(path)`로 기본 객체를 받은 뒤 텍스트나 요약을 출력합니다. 라이브러리 호출 자체는 출력을 하지 않고 객체와 오류를 반환합니다. 다른 패키지에서는 공개 함수 `gopd.ParsePDF`를 사용합니다. 전체 공개 함수·메서드는 [공개 API 목록](public-api.md)을 참고하세요.
 
 ## 반환 객체
 
@@ -109,7 +109,7 @@ if len(detail.Texts) > 0 && len(detail.Texts[0].Source.Spans) > 0 {
 detail := doc.Details()
 if len(detail.Pages) > 0 {
     for _, item := range detail.Pages[0].Items {
-        if item.Kind == pdf.ElementText {
+        if item.Kind == gopd.ElementText {
             text := detail.Texts[item.Index]
             fmt.Println(text.Unicode, len(text.Glyphs))
         }

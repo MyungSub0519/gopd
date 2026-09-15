@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 // PDF is the basic result returned by ParsePDF. The outer slice index is the
 // zero-based page index; empty pages contain non-nil empty slices. Each inner
