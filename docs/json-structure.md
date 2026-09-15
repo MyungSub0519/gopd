@@ -2,7 +2,7 @@
 
 이 문서는 로컬에 저장한 `테스트PDF.parsed.json`의 키 구조와 참조 관계를 설명합니다. 대상 스키마는 `gopd-parsed-v1`이며 이 출력 파일과 원본 PDF는 Git에 포함하지 않습니다.
 
-이 파일은 콘텐츠 정보와 정밀 분석 정보를 함께 담은 기존 상세 결과입니다. 현재 `gopd.ParsePDF()`의 기본 객체와 기본 JSON은 [기본 PDF API](basic-gopd.md)에서 설명합니다. 기존 상세 JSON 파일은 변경하지 않았습니다. 현재 CLI의 `-json` 옵션은 개수 요약만 출력하므로 두 객체의 전체 JSON과는 출력 범위가 다릅니다. 콘텐츠 종류나 페이지를 선택해 파싱하는 모드는 아직 제공하지 않습니다.
+이 파일은 콘텐츠 정보와 정밀 분석 정보를 함께 담은 기존 상세 결과입니다. 현재 `gopd.ParsePDF()`의 기본 객체와 기본 JSON은 [기본 PDF API](basic-pdf.md)에서 설명합니다. 기존 상세 JSON 파일은 변경하지 않았습니다. 현재 CLI의 `-json` 옵션은 개수 요약만 출력하므로 두 객체의 전체 JSON과는 출력 범위가 다릅니다. 콘텐츠 종류나 페이지를 선택해 파싱하는 모드는 아직 제공하지 않습니다.
 
 본문의 `[]`는 배열을 뜻합니다. 예시는 구조 설명용이며 실제 문서 내용이나 좌표를 재현한 것이 아닙니다.
 
@@ -515,11 +515,11 @@ JSON에는 원본·디코딩 소스의 바이트 본문과 `Reader`를 저장하
 ## 관련 코드
 
 - [기본 콘텐츠 타입](../basic_model.go)
-- [상세 콘텐츠 타입](../model.go)
+- [상세 콘텐츠 타입](../detailed_model.go)
 - [파일 구조와 진단 타입](../structure_types.go)
 - [PDF 객체 타입](../object_types.go)
 - [스트림 타입](../stream_types.go)
 - [간접 객체와 출처 타입](../indirect_types.go)
 - [xref 타입](../xref_types.go)
 - [바이트 소스와 위치 타입](../source_types.go)
-- [CMap 타입](../cmap.go)
+- [글꼴과 CMap 타입](../font_types.go)

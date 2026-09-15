@@ -4,6 +4,16 @@
 
 [English](README.md) | 한국어
 
+## 라이브러리 API
+
+`gopd.ParsePDF(path)`로 페이지별 텍스트·그래픽을 얻고, 반환 객체의 `Details()`로 상세 분석 결과에 접근합니다.
+
+- [공개 기능과 API 목록](docs/public-api.md)
+- [기본 파싱과 JSON](docs/basic-pdf.md)
+- [상세 JSON 구조](docs/json-structure.md)
+
+`go doc .`으로 패키지 문서를 확인하고 `go test ./...`로 테스트를 실행합니다.
+
 ## 제작 배경
 
 Go 생태계에서는 MuPDF처럼 강력한 오픈소스 PDF 파서를 찾기 어려웠습니다. 다른 언어로 작성된 DLL을 불러와 사용하는 프로젝트가 많았고, 저는 이런 방식이 아름답지 않다고 생각했습니다.

@@ -5,16 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 )
-
-// ReadOptions bounds input, recursive parsing, xrefs and decoded stream data.
-// Zero fields use defaults. Negative values are invalid.
-type ReadOptions struct {
-	MaxFileBytes int64
-	Limits       Limits
-}
 
 // Document owns an immutable input snapshot and lazily decoded sources.
 // Treat returned objects/slices as read-only. Lazy methods are not concurrent-safe.
@@ -35,81 +27,8 @@ type Document struct {
 	trailer      Object
 }
 
-func normalizeOptions(options []ReadOptions) (ReadOptions, error) {
-	if len(options) > 1 {
-		return ReadOptions{}, errors.New("at most one ReadOptions value is accepted")
-	}
-	var o ReadOptions
-	if len(options) == 1 {
-		o = options[0]
-	}
-	if o.MaxFileBytes < 0 || o.Limits.MaxDepth < 0 || o.Limits.MaxTokenBytes < 0 || o.Limits.MaxObjects < 0 || o.Limits.MaxXRefSections < 0 || o.Limits.MaxDecodedBytes < 0 {
-		return o, errors.New("negative PDF read limit")
-	}
-	if o.MaxFileBytes == 0 {
-		o.MaxFileBytes = 256 << 20
-	}
-	if o.Limits.MaxDepth == 0 {
-		o.Limits.MaxDepth = 256
-	}
-	if o.Limits.MaxTokenBytes == 0 {
-		o.Limits.MaxTokenBytes = 16 << 20
-	}
-	if o.Limits.MaxObjects == 0 {
-		o.Limits.MaxObjects = 1_000_000
-	}
-	if o.Limits.MaxXRefSections == 0 {
-		o.Limits.MaxXRefSections = 256
-	}
-	if o.Limits.MaxDecodedBytes == 0 {
-		o.Limits.MaxDecodedBytes = 256 << 20
-	}
-	return o, nil
-}
-
-// Parse snapshots r; it never closes a caller-owned ReaderAt.
-func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
-	o, err := normalizeOptions(options)
-	if err != nil {
-		return nil, err
-	}
-	if r == nil || size <= 0 || size > o.MaxFileBytes || uint64(size) > uint64(^uint(0)>>1) {
-		return nil, fmt.Errorf("invalid or over-limit PDF size %d", size)
-	}
-	data := make([]byte, int(size))
-	n, err := r.ReadAt(data, 0)
-	if n != len(data) {
-		if err == nil {
-			err = io.ErrUnexpectedEOF
-		}
-		return nil, fmt.Errorf("read PDF snapshot: %w", err)
-	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	d := &Document{data: data, Options: o, Sources: make(map[SourceID]Source), entries: make(map[uint32]XRefRecord), cache: make(map[ObjectID]*IndirectObject), physical: make(map[int64]*IndirectObject), loading: make(map[ObjectID]bool), decoded: make(map[Span]SourceID)}
-	d.Sources[1] = Source{ID: 1, Reader: bytes.NewReader(data), Size: size}
-	d.Structure.File = 1
-	d.Structure.Regions = []FileRegion{{Kind: RegionUnknown, Span: Span{Source: 1, End: size}}}
-	if err = d.readHeaderAndXRefs(); err != nil {
-		return d, err
-	}
-	return d, nil
-}
-
-func ParseFile(path string, options ...ReadOptions) (*Document, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	stat, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	return Parse(f, stat.Size(), options...)
-}
-
+// Bytes returns a copy of the requested source range. Offsets address either
+// the original file or a decoded source according to span.Source.
 func (d *Document) Bytes(span Span) ([]byte, error) {
 	source, ok := d.Sources[span.Source]
 	if !ok || span.Start < 0 || span.End < span.Start || span.End > source.Size || uint64(span.End-span.Start) > uint64(^uint(0)>>1) {
@@ -132,6 +51,7 @@ func (d *Document) Bytes(span Span) ([]byte, error) {
 	return data, nil
 }
 
+// Catalog resolves the document catalog referenced by the effective trailer.
 func (d *Document) Catalog() (Object, error) {
 	dict, ok := d.trailer.Value.(Dictionary)
 	if !ok {
@@ -144,6 +64,7 @@ func (d *Document) Catalog() (Object, error) {
 	return d.ResolveObject(root)
 }
 
+// Resolve loads one indirect reference and returns its object body.
 func (d *Document) Resolve(ref Reference) (Object, error) {
 	obj, err := d.Load(ref.ID)
 	if err != nil {
@@ -152,6 +73,8 @@ func (d *Document) Resolve(ref Reference) (Object, error) {
 	return obj.Body, nil
 }
 
+// ResolveObject follows indirect reference chains, rejecting cycles and depth
+// limit violations. A direct object is returned unchanged.
 func (d *Document) ResolveObject(object Object) (Object, error) {
 	seen := make(map[ObjectID]bool)
 	for depth := 0; depth < d.Options.Limits.MaxDepth; depth++ {
@@ -207,6 +130,7 @@ func (d *Document) markRegion(kind RegionKind, span Span) {
 }
 
 func docSpace(c byte) bool { return c == 0 || c == 9 || c == 10 || c == 12 || c == 13 || c == 32 }
+
 func skipDocSpace(data []byte, pos int) int {
 	for pos < len(data) {
 		if docSpace(data[pos]) {
@@ -223,7 +147,9 @@ func skipDocSpace(data []byte, pos int) int {
 	}
 	return pos
 }
+
 func docDelimiter(c byte) bool { return docSpace(c) || bytes.IndexByte([]byte("()<>[]{}/%"), c) >= 0 }
+
 func docWord(data []byte, pos *int) (string, int, error) {
 	*pos = skipDocSpace(data, *pos)
 	start := *pos
@@ -235,6 +161,7 @@ func docWord(data []byte, pos *int) (string, int, error) {
 	}
 	return string(data[start:*pos]), start, nil
 }
+
 func docUint(data []byte, pos *int, bits int) (uint64, int, error) {
 	s, start, err := docWord(data, pos)
 	if err != nil {
@@ -246,3 +173,6 @@ func docUint(data []byte, pos *int, bits int) (uint64, int, error) {
 	}
 	return n, start, nil
 }
+
+// RawObject returns the original syntax of an object, including its delimiters.
+func (d *Document) RawObject(object Object) ([]byte, error) { return d.Bytes(object.Span) }

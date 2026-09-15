@@ -12,11 +12,6 @@ import (
 
 const maxCMapEntries = 65536
 
-type CodeSpace struct{ Low, High []byte }
-type CMap struct {
-	CodeSpaces []CodeSpace
-	Mappings   map[string]string
-}
 type decodedCode struct {
 	bytes    []byte
 	unicode  string
@@ -175,6 +170,7 @@ func (c *CMap) add(code []byte, value string) error {
 	c.Mappings[string(code)] = value
 	return nil
 }
+
 func cmapHex(s string) ([]byte, error) {
 	if len(s) < 2 || s[0] != '<' || s[len(s)-1] != '>' {
 		return nil, fmt.Errorf("expected CMap hex string, got %q", s)
@@ -185,6 +181,7 @@ func cmapHex(s string) ([]byte, error) {
 	}
 	return hex.DecodeString(clean)
 }
+
 func cmapUnicode(b []byte) (string, error) {
 	if len(b) == 0 || len(b)%2 != 0 {
 		return "", fmt.Errorf("ToUnicode destination must be UTF-16BE")
@@ -206,6 +203,7 @@ func cmapUnicode(b []byte) (string, error) {
 	}
 	return string(utf16.Decode(units)), nil
 }
+
 func codeNumber(code []byte) uint32 {
 	var n uint32
 	for _, b := range code {
@@ -213,6 +211,7 @@ func codeNumber(code []byte) uint32 {
 	}
 	return n
 }
+
 func incrementCode(b []byte, n uint64) []byte {
 	out := append([]byte(nil), b...)
 	for i := len(out) - 1; i >= 0; i-- {
@@ -222,10 +221,12 @@ func incrementCode(b []byte, n uint64) []byte {
 	}
 	return out
 }
+
 func (c *CMap) decode(raw []byte) (string, []decodedCode, bool) {
 	text, codes, complete, _ := c.decodeBounded(raw, 256<<20)
 	return text, codes, complete
 }
+
 func (c *CMap) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bool, error) {
 	spaces := c.CodeSpaces
 	if len(spaces) == 0 {

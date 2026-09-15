@@ -26,45 +26,6 @@ type semanticBuilder struct {
 	maxObjects      int
 }
 
-// BuildPDF interprets page contents. Invalid syntax and traversal limits return
-// an error and any partial result. Unsupported effects are retained as operations
-// and diagnostics. No pixel rendering, OCR, or reading-order reconstruction occurs.
-func BuildPDF(d *Document) (*DetailedPDF, error) {
-	if d == nil {
-		return nil, fmt.Errorf("nil Document")
-	}
-	p := &DetailedPDF{Document: d, Structure: &d.Structure}
-	if d.Encrypted {
-		return p, fmt.Errorf("semantic decoding of encrypted PDF is unsupported")
-	}
-	b := &semanticBuilder{doc: d, pdf: p, fonts: make(map[Span]int), images: make(map[Span]int), activeForms: make(map[Span]bool), activePages: make(map[Span]bool), page: -1, maxDepth: 128, maxObjects: 1000000}
-	b.cmaps = make(map[Span]*CMap)
-	b.maxUnicodeBytes = 256 << 20
-	if d.Options.Limits.MaxDecodedBytes > 0 && d.Options.Limits.MaxDecodedBytes < b.maxUnicodeBytes {
-		b.maxUnicodeBytes = d.Options.Limits.MaxDecodedBytes
-	}
-	if d.Options.Limits.MaxDepth > 0 && d.Options.Limits.MaxDepth < b.maxDepth {
-		b.maxDepth = d.Options.Limits.MaxDepth
-	}
-	if d.Options.Limits.MaxObjects > 0 && d.Options.Limits.MaxObjects < b.maxObjects {
-		b.maxObjects = d.Options.Limits.MaxObjects
-	}
-	catalog, err := d.Catalog()
-	if err != nil {
-		return p, err
-	}
-	dict, err := semDictionary(catalog)
-	if err != nil {
-		return p, err
-	}
-	pages, err := dict.Get("Pages")
-	if err != nil {
-		return p, err
-	}
-	err = b.walkPages(pages, map[Name]Object{}, 0)
-	return p, err
-}
-
 func (b *semanticBuilder) get(dict Dictionary, key Name) (Object, bool, error) {
 	object, err := dict.Get(key)
 	if errors.Is(err, ErrMissingKey) {
@@ -76,6 +37,7 @@ func (b *semanticBuilder) get(dict Dictionary, key Name) (Object, bool, error) {
 	object, err = b.doc.ResolveObject(object)
 	return object, true, err
 }
+
 func (b *semanticBuilder) name(dict Dictionary, key Name) (Name, error) {
 	object, ok, err := b.get(dict, key)
 	if err != nil || !ok {
@@ -87,6 +49,7 @@ func (b *semanticBuilder) name(dict Dictionary, key Name) (Name, error) {
 	}
 	return name, nil
 }
+
 func semDictionary(object Object) (Dictionary, error) {
 	var dict Dictionary
 	switch value := object.Value.(type) {
@@ -106,12 +69,14 @@ func semDictionary(object Object) (Dictionary, error) {
 	}
 	return dict, nil
 }
+
 func semID(object Object) ObjectID {
 	if ref, ok := object.Value.(Reference); ok {
 		return ref.ID
 	}
 	return ObjectID{}
 }
+
 func (b *semanticBuilder) diag(code, message string, span Span) {
 	b.pdf.Diagnostics = append(b.pdf.Diagnostics, Diagnostic{Severity: SeverityWarning, Code: code, Message: message, Span: span})
 	b.pdf.diagnosticPages = append(b.pdf.diagnosticPages, b.page)
@@ -119,6 +84,7 @@ func (b *semanticBuilder) diag(code, message string, span Span) {
 		b.pdf.Pages[b.page].Complete = false
 	}
 }
+
 func (b *semanticBuilder) rect(object Object) (Rect, error) {
 	values, err := b.numbers(object, 4)
 	if err != nil {
@@ -129,6 +95,7 @@ func (b *semanticBuilder) rect(object Object) (Rect, error) {
 	}
 	return Rect{Point{values[0], values[1]}, Point{values[2], values[3]}}, nil
 }
+
 func (b *semanticBuilder) numbers(object Object, n int) ([]float64, error) {
 	array, ok := object.Value.(Array)
 	if !ok || (n >= 0 && len(array.Items) != n) {
@@ -400,10 +367,12 @@ func (c *contentInterpreter) source(op Operation, index int) ElementSource {
 	spans = append(spans, op.Span)
 	return ElementSource{Page: c.page, Spans: spans, Operations: []int{index}, FormPath: append([]FormCall(nil), c.formPath...)}
 }
+
 func (c *contentInterpreter) item(kind ElementKind, index int) {
 	page := &c.b.pdf.Pages[c.page]
 	page.Items = append(page.Items, ElementRef{kind, index})
 }
+
 func (c *contentInterpreter) unsupported(op Operation, message string) {
 	c.b.diag("unsupported-content-effect", message, op.Span)
 	c.state.graphics.Complete = false

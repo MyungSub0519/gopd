@@ -4,6 +4,16 @@
 
 English | [한국어](README.ko.md)
 
+## Library API
+
+Use `gopd.ParsePDF(path)` for text and graphics grouped by page, and `result.Details()` for the underlying detailed analysis.
+
+- [Public features and API reference](docs/public-api.md)
+- [Basic parsing and JSON](docs/basic-pdf.md)
+- [Detailed JSON structure](docs/json-structure.md)
+
+Run `go doc .` for package documentation and `go test ./...` to run the tests.
+
 ## Motivation
 
 I struggled to find an open-source PDF parser as powerful as MuPDF in the Go ecosystem. Many projects relied on importing DLLs written in other languages, and I did not find that approach elegant.

@@ -16,23 +16,6 @@ type DetailedPDF struct {
 	diagnosticPages []int // emission context, including reused Form streams
 }
 
-type Point struct{ X, Y float64 }
-type Rect struct{ Min, Max Point }
-
-// Matrix is [a b c d e f], mapping (x,y) to (a*x+c*y+e,b*x+d*y+f).
-// Coordinates use PDF user space; page rotation is retained separately.
-type Matrix [6]float64
-
-func IdentityMatrix() Matrix { return Matrix{1, 0, 0, 1, 0, 0} }
-func (m Matrix) Transform(p Point) Point {
-	return Point{m[0]*p.X + m[2]*p.Y + m[4], m[1]*p.X + m[3]*p.Y + m[5]}
-}
-
-// Mul composes transformations: m.Mul(n).Transform(p) = m.Transform(n.Transform(p)).
-func (m Matrix) Mul(n Matrix) Matrix {
-	return Matrix{m[0]*n[0] + m[2]*n[1], m[1]*n[0] + m[3]*n[1], m[0]*n[2] + m[2]*n[3], m[1]*n[2] + m[3]*n[3], m[0]*n[4] + m[2]*n[5] + m[4], m[1]*n[4] + m[3]*n[5] + m[5]}
-}
-
 type ElementKind uint8
 
 const (
@@ -68,12 +51,14 @@ type FormCall struct {
 	Span     Span
 	Call     Span
 }
+
 type ElementSource struct {
 	Page       int
 	Spans      []Span
 	Operations []int // indexes into the page's flattened Operations slice
 	FormPath   []FormCall
 }
+
 type Operation struct {
 	Operator string
 	Operands []Object
@@ -81,34 +66,12 @@ type Operation struct {
 	FormPath []FormCall
 }
 
-type Color struct {
-	Space      Name
-	Components []float64
-	Pattern    Name
-}
-type GraphicsState struct {
-	CTM                    Matrix
-	LineWidth              float64
-	LineCap, LineJoin      int
-	MiterLimit             float64
-	Dash                   []float64
-	DashPhase              float64
-	Stroke, Fill           Color
-	StrokeAlpha, FillAlpha float64
-	BlendMode              Name
-	Clip                   []ClipPath
-	RenderingIntent        Name
-	Complete               bool
-}
-type ClipPath struct {
-	Segments []DetailedPathSegment
-	EvenOdd  bool
-}
 type DetailedPathSegment struct {
 	Operator string
 	Points   []Point // transformed to page user space when the segment is constructed
 	Span     Span
 }
+
 type DetailedGraphic struct {
 	Source                ElementSource
 	Segments              []DetailedPathSegment
@@ -125,6 +88,7 @@ type Glyph struct {
 	DecodeComplete bool
 	WidthKnown     bool
 }
+
 type DetailedText struct {
 	Source           ElementSource
 	RawCodes         []byte
@@ -146,6 +110,7 @@ type DetailedImage struct {
 	Matrix   Matrix
 	State    GraphicsState
 }
+
 type ImageResource struct {
 	Object           Object
 	ID               ObjectID
@@ -156,24 +121,6 @@ type ImageResource struct {
 	ImageMask        bool
 }
 
-type Font struct {
-	Object               Object
-	ID                   ObjectID
-	Subtype              Name
-	BaseFont             Name
-	Encoding             Object
-	ToUnicode            *CMap
-	Embedded             *Object
-	DecodeSupported      bool
-	WidthsKnown          bool
-	PositioningSupported bool
-	widths               map[uint32]float64
-	defaultWidth         float64
-	defaultWidthKnown    bool
-	simpleEncoding       map[byte]string
-	composite            bool
-	vertical             bool
-}
 type Annotation struct {
 	Page    int
 	Object  Object

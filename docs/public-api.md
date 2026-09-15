@@ -1,6 +1,6 @@
-# 공개 함수와 메서드
+# 라이브러리 공개 기능과 API
 
-GoPD를 다른 Go 패키지에서 사용할 때 호출할 수 있는 API 목록입니다. 현재 공개 함수는 **12개**, 공개 타입의 메서드는 **12개**입니다. 타입·필드·상수 전체 목록은 `go doc -all .`로 확인할 수 있습니다.
+외부에서 사용할 기능과 그 기능에 대응하는 API 목록입니다. 현재 공개 함수는 **12개**, 공개 타입의 메서드는 **12개**, 공개 타입은 **84개**입니다. 타입에는 기본 결과·상세 결과·PDF 구문과 기존 호환성용 선언이 모두 포함됩니다. 이번 정리에서는 이름·시그니처·필드·상수와 반환 동작을 유지합니다.
 
 모듈 경로는 `github.com/MyungSub0519/gopd`, 패키지 이름은 `gopd`입니다.
 
@@ -9,6 +9,24 @@ import "github.com/MyungSub0519/gopd"
 ```
 
 아래 시그니처는 패키지 내부 선언과 동일하게 `gopd.` 접두어를 생략했습니다. 외부에서는 `gopd.ParsePDF`, `gopd.ReadOptions`, `gopd.ObjectID`처럼 사용합니다.
+
+## 외부에 제공할 기능 목록
+
+| 구분 | 제공할 기능 | API | 주요 결과 |
+| --- | --- | --- | --- |
+| 기본 파싱 | 파일에서 페이지별 텍스트·벡터 그래픽 추출 | `ParsePDF` | `PDF` |
+| 상세 결과 접근 | 같은 파싱의 상세 결과 확인 | `PDF.Details` | `DetailedPDF` |
+| 상세 콘텐츠 분석 | 파일·ReaderAt·저수준 문서에서 상세 콘텐츠 해석 | `Open`, `Read`, `BuildPDF` | `DetailedPDF` |
+| 저수준 문서 입력 | 입력 크기·구문 깊이 등의 제한을 적용하여 문서 열기 | `ParseFile`, `Parse` | `Document` |
+| 객체 탐색 | Catalog·간접 객체 조회 및 참조 해석 | `Document.Catalog`, `Load`, `Resolve`, `ResolveObject` | `Object`, `IndirectObject` |
+| 원본·스트림 접근 | 구문 바이트 읽기, 스트림 디코딩, 출처 추적 | `Document.Bytes`, `RawObject`, `DecodeStream` | 바이트, `Source` |
+| 독립 구문 분석 | 별도 바이트 범위의 토큰·PDF 객체 분석 | `Lex`, `ParseObject` | `Token`, `Object` |
+| 값 조회·변환 | 사전 조회, 숫자 변환, 스트림 여부 확인 | `Dictionary.Get`, `GetAll`, `Int`, `Number`, `IsStream` | 조회 값과 오류 |
+| 좌표 계산 | 항등 행렬, 점 변환, 변환 합성 | `IdentityMatrix`, `Matrix.Transform`, `Mul` | `Matrix`, `Point` |
+
+일반 사용자는 `ParsePDF`부터 시작합니다. 글리프·이미지·원문 출처 등이 필요하면 `Details()`를 사용합니다. 입력 제한을 직접 설정하거나 객체를 탐색하는 도구는 `ParseFile` 또는 `Parse`부터 시작합니다. 위 기능은 모두 기존 단일 `gopd` 패키지에서 제공합니다.
+
+이미지·주석은 현재 상세 결과에 포함됩니다. 픽셀 렌더링, OCR, 편집·저장, 암호화 해제, 사람의 읽기 순서 복원, 선택적 페이지·콘텐츠 파싱은 현재 공개 기능에 포함하지 않습니다. 지원하지 않는 효과와 입력은 오류 또는 진단으로 확인합니다.
 
 ## 기본 진입점
 
@@ -38,7 +56,7 @@ func main() {
 }
 ```
 
-반환된 `*PDF`의 공개 필드는 `Texts [][]Text`, `Graphics [][]Graphic` 두 개입니다. 바깥 배열은 페이지 순서이며 요소가 없는 페이지는 빈 배열 `[]`로 유지합니다. 페이지 정보·이미지·진단을 포함한 상세 결과는 `doc.Details()`로 접근합니다. 반환 필드와 JSON 사용법은 [기본 PDF API](basic-gopd.md)를 참고하세요.
+반환된 `*PDF`의 공개 필드는 `Texts [][]Text`, `Graphics [][]Graphic` 두 개입니다. 바깥 배열은 페이지 순서이며 요소가 없는 페이지는 빈 배열 `[]`로 유지합니다. 페이지 정보·이미지·진단을 포함한 상세 결과는 `doc.Details()`로 접근합니다. 반환 필드와 JSON 사용법은 [기본 PDF API](basic-pdf.md)를 참고하세요.
 
 CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조 함수이며 내부에서 `gopd.ParsePDF()`를 호출합니다. 외부 라이브러리 사용자는 `gopd.ParsePDF()`를 사용합니다.
 
@@ -53,7 +71,7 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 | `func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error)` | ReaderAt 입력의 저수준 분석과 객체 접근 준비 |
 | `func BuildPDF(d *Document) (*DetailedPDF, error)` | 저수준 Document의 페이지 트리와 콘텐츠를 해석해 상세 결과 생성 |
 
-구현: [basic.go](../basic.go), [read.go](../read.go), [document.go](../document.go), [content.go](../content.go).
+진입점: [api_basic.go](../api_basic.go), [api_detailed.go](../api_detailed.go), [api_document.go](../api_document.go). 콘텐츠 해석 구현은 [content.go](../content.go), 기본 결과 변환은 [basic_projection.go](../basic_projection.go)에 있습니다.
 
 `Parse`와 `ParseFile`의 `options`는 생략하거나 하나 전달할 수 있습니다. `ReadOptions.MaxFileBytes`와 `ReadOptions.Limits`로 입력 크기·구문 깊이·토큰 크기·객체 수·xref 섹션 수·디코딩 데이터 제한을 설정합니다. 각 필드의 0은 기본값을 사용하고 음수는 오류입니다.
 
@@ -68,7 +86,7 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 
 `source`는 입력이 속한 소스의 식별자이고, `offset`은 그 소스에서 `data[0]`의 바이트 위치입니다. 이 함수들은 전달받은 바이트를 분석하며 Document에 소스를 등록하지 않습니다.
 
-구현: [lexer.go](../lexer.go), [parser.go](../parser.go).
+진입점: [api_syntax.go](../api_syntax.go). 실제 스캐너와 객체 parser는 [lexer.go](../lexer.go), [parser.go](../parser.go)에 있습니다.
 
 ## 3. 값 확인·변환 함수 — 3개
 
@@ -80,7 +98,7 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 
 이 함수들은 간접 참조를 자동으로 해석하지 않습니다. 필요한 경우 먼저 `Document.ResolveObject`를 호출합니다.
 
-구현: [values.go](../values.go), [document_objects.go](../document_objects.go).
+구현: [values.go](../values.go).
 
 ## 4. 좌표 변환 함수 — 1개
 
@@ -88,7 +106,7 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 | --- | --- |
 | `func IdentityMatrix() Matrix` | 좌표를 변경하지 않는 항등 행렬 `[1 0 0 1 0 0]` 생성 |
 
-구현: [model.go](../model.go).
+구현: [geometry.go](../geometry.go).
 
 ## 5. PDF 메서드 — 1개
 
@@ -98,7 +116,7 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 
 `Details()`는 파일을 다시 읽지 않습니다. 기본 결과의 Texts·Graphics는 페이지별 이중 배열이며 상세 결과는 문서 전체의 평면 배열입니다. 특정 페이지의 상세 요소는 `detail.Pages[page].Items`의 Kind와 Index로 찾습니다. 기본 배열의 안쪽 인덱스를 상세 배열의 전역 인덱스로 사용할 수는 없습니다.
 
-구현: [basic.go](../basic.go).
+구현: [api_basic.go](../api_basic.go).
 
 ## 6. Document 메서드 — 7개
 
@@ -142,7 +160,70 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 
 `m.Mul(n).Transform(p)`는 `m.Transform(n.Transform(p))`와 같습니다. 즉 `n`을 먼저 적용하고 `m`을 적용합니다. 페이지의 `Rotate`와 `UserUnit`을 자동으로 적용하는 함수는 아닙니다.
 
-구현: [model.go](../model.go).
+구현: [geometry.go](../geometry.go).
+
+## 공개 타입의 역할
+
+반환값에 연결된 타입도 외부 API의 일부입니다. 다음 분류는 기존 선언을 모두 유지하면서 사용 목적을 구분한 것입니다.
+
+| 역할 | 공개 타입 | 코드 |
+| --- | --- | --- |
+| 기본 결과 | `PDF`, `Text`, `Graphic`, `PathSegment` | [basic_model.go](../basic_model.go) |
+| 상세 콘텐츠 | `DetailedPDF`, `DetailedPage`, `DetailedText`, `DetailedGraphic`, `DetailedImage`, `DetailedPathSegment`, `Glyph`, `ImageResource`, `Annotation` | [detailed_model.go](../detailed_model.go) |
+| 실행 순서·출처 | `ElementKind`, `ElementRef`, `FormCall`, `ElementSource`, `Operation` | [detailed_model.go](../detailed_model.go) |
+| 글꼴 | `FontInfo`, `Font`, `CodeSpace`, `CMap` | [font_types.go](../font_types.go) |
+| 스타일 | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath` | [style_types.go](../style_types.go) |
+| 좌표 | `Point`, `Rect`, `Matrix` | [geometry.go](../geometry.go) |
+| 문서·입력 제한 | `Document`, `ReadOptions`, `Limits` | [document.go](../document.go), [read_options.go](../read_options.go), [structure_types.go](../structure_types.go) |
+| PDF 값 | `Value`, `Object`, `Null`, `Boolean`, `Integer`, `Real`, `Name`, `StringForm`, `PDFString`, `Array`, `DictionaryEntry`, `Dictionary`, `ObjectID`, `Reference`, `InvalidValue` | [object_types.go](../object_types.go) |
+| 간접 객체 | `ObjectOrigin`, `FileObjectOrigin`, `ObjectStreamOrigin`, `IndirectObject` | [indirect_types.go](../indirect_types.go) |
+| 스트림 | `StreamBoundary`, `Stream` | [stream_types.go](../stream_types.go) |
+| 바이트 출처 | `SourceID`, `Position`, `Span`, `Source`, `Derivation`, `TransformKind`, `Transform` | [source_types.go](../source_types.go) |
+| xref | `XRefEntry`, `FreeEntry`, `InUseEntry`, `CompressedEntry`, `UnknownXRefEntry`, `XRefRecord`, `XRefRange`, `XRefForm`, `SectionID`, `XRefSection` | [xref_types.go](../xref_types.go) |
+| 파일 구조·진단 | `Version`, `Header`, `FileTail`, `RegionKind`, `FileRegion`, `Severity`, `Diagnostic`, `Structure` | [structure_types.go](../structure_types.go) |
+| 토큰 | `TokenKind`, `Token` | [token_types.go](../token_types.go) |
+| 기존 호환성 | `Page`, `Image`, `ImageInfo`, `ParseDiagnostic` | [compat_types.go](../compat_types.go) |
+
+`ElementKind`, `TokenKind`, `Severity` 등의 기존 상수와 `ErrMissingKey`도 유지합니다. 모든 타입이 완전한 PDF 규격 지원을 의미하지는 않습니다. 예를 들어 복구·복호화 등을 표현하는 타입 값이 정의되어 있어도 해당 처리가 구현되지 않은 경우가 있습니다.
+
+### 현재 결과에서 사용하지 않는 기존 타입
+
+아래 네 타입은 기존 호출 코드의 컴파일 호환성을 위해 선언과 필드를 유지합니다. 문서 주석의 `Deprecated:` 표시는 새 코드에서 사용할 실제 결과 타입을 안내하며, 타입을 제거한 것은 아닙니다.
+
+| 기존 타입 | 권장 접근 |
+| --- | --- |
+| `Page` | `PDF.Details().Pages`의 `DetailedPage` |
+| `Image` | `PDF.Details().Images`의 `DetailedImage` |
+| `ImageInfo` | `PDF.Details().ImageResources`의 `ImageResource` |
+| `ParseDiagnostic` | `PDF.Details().Diagnostics`, `Structure.Diagnostics`의 `Diagnostic` |
+
+## 코드 구성 기준
+
+```text
+api_basic.go        기본 파싱과 Details()
+api_detailed.go     상세 파일·reader·문서 진입점
+api_document.go     저수준 파일·reader 진입점
+api_syntax.go       독립 토큰·객체 파싱 진입점
+
+basic_projection.go 상세 결과 → 기본 결과 변환
+basic_model.go      기본 반환 타입
+detailed_model.go   상세 반환 타입
+font_types.go       글꼴 타입
+style_types.go      스타일 타입
+geometry.go         좌표 타입과 계산
+read_options.go     입력 제한과 기본값
+compat_types.go     기존 호환성 타입
+
+document*.go        문서·객체·xref 처리
+lexer.go, parser.go 바이트 구문 해석
+filters.go          스트림 디코딩
+content*.go         페이지·Form·그리기 명령 해석
+fonts.go, cmap.go   글꼴·문자 매핑 해석
+values.go           사전 조회와 값 변환
+cmd/gopd/          CLI 인수 처리와 표시
+```
+
+공개 진입점은 해당 역할의 `api_*.go`에서 찾고, 알고리즘 변경은 각 구현 파일에서 다룹니다. 이동을 위해 동일한 함수를 여러 번 감싸는 계층은 추가하지 않았습니다. CLI는 라이브러리를 호출하며 파싱 로직을 소유하지 않습니다.
 
 ## 결과 수명과 오류 처리
 
@@ -161,8 +242,8 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 go doc -all .
 ```
 
-공개 함수나 메서드를 추가·변경할 때 이 문서의 시그니처와 개수도 함께 갱신합니다.
+공개 함수나 메서드를 추가·변경할 때 이 문서의 목록과 개수도 함께 갱신합니다. [외부 패키지 테스트](../public_api_test.go)는 `gopd_test` 패키지에서 공개 API만 사용해 기본·상세·저수준 진입점을 검증합니다.
 
-- [기본 PDF API와 JSON 저장](basic-gopd.md)
+- [기본 PDF API와 JSON 저장](basic-pdf.md)
 - [상세 JSON 구조](json-structure.md)
 - [프로젝트 README](../README.md)

@@ -7,6 +7,8 @@ import (
 	"strconv"
 )
 
+// ErrMissingKey identifies absent dictionary keys. Use errors.Is to distinguish
+// a missing key from a duplicate key or another lookup failure.
 var ErrMissingKey = errors.New("PDF dictionary key is missing")
 
 // Get rejects duplicate keys rather than silently discarding original entries.
@@ -38,6 +40,8 @@ func (d Dictionary) GetAll(key Name) []Object {
 	return values
 }
 
+// Int converts a direct PDF Integer into int64, rejecting other types and
+// out-of-range values. Resolve indirect references before calling Int.
 func Int(object Object) (int64, error) {
 	n, ok := object.Value.(Integer)
 	if !ok {
@@ -50,6 +54,8 @@ func Int(object Object) (int64, error) {
 	return v, nil
 }
 
+// Number converts a direct Integer or Real into a finite float64. It does not
+// resolve indirect references or preserve exact decimal precision.
 func Number(object Object) (float64, error) {
 	var text string
 	switch n := object.Value.(type) {
@@ -66,3 +72,7 @@ func Number(object Object) (float64, error) {
 	}
 	return n, nil
 }
+
+// IsStream reports whether object directly contains a Stream. It does not
+// follow references; use Document.ResolveObject first when necessary.
+func IsStream(object Object) bool { _, ok := object.Value.(Stream); return ok }

@@ -1,15 +1,8 @@
 package gopd
 
-import "strconv"
-
-// ParseObject parses one direct PDF object or indirect reference. consumed is
-// relative to data and includes leading whitespace and comments, but excludes
-// trailing trivia. Spans are absolute within source and exclude leading trivia.
-// Bare keywords other than true, false and null are not object values.
-// Default limits are 256 container levels, 16 MiB per token and 1,048,576 values.
-func ParseObject(data []byte, source SourceID, offset int64) (object Object, consumed int, err error) {
-	return parseObjectWithLimits(data, source, offset, Limits{})
-}
+import (
+	"strconv"
+)
 
 func parseObjectWithLimits(data []byte, source SourceID, offset int64, limits Limits) (Object, int, error) {
 	if limits.MaxDepth < 0 || limits.MaxTokenBytes < 0 {

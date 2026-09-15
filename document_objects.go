@@ -239,9 +239,3 @@ func (d *Document) loadCompressed(id ObjectID, entry CompressedEntry) (*Indirect
 	d.Structure.Objects = append(d.Structure.Objects, *obj)
 	return obj, nil
 }
-
-// IsStream reports whether a resolved syntax object contains stream data.
-func IsStream(object Object) bool { _, ok := object.Value.(Stream); return ok }
-
-// RawObject returns the original syntax of an object, including its delimiters.
-func (d *Document) RawObject(object Object) ([]byte, error) { return d.Bytes(object.Span) }
