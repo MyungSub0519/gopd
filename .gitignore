@@ -1,0 +1,9 @@
+# Local input documents and generated inspection results.
+*.pdf
+/*.parsed.json
+/*.basic.json
+/*.inspect.json
+
+# Local Go build/test output.
+/*.exe
+/coverage.out
