@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 type Version struct {
 	Major uint8

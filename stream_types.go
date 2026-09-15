@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 type StreamBoundary uint8
 
