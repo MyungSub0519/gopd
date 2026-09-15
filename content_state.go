@@ -505,7 +505,9 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 	if !finiteMatrix(text.Matrix) {
 		return fmt.Errorf("text transformation overflow")
 	}
-	var font *Font
+	// A zero Font decodes every code as unsupported with unknown widths, so a
+	// show operator before Tf still yields a Text element flagged incomplete.
+	font := &Font{}
 	if t.font >= 0 {
 		font = &c.b.pdf.Fonts[t.font]
 	}
@@ -531,16 +533,7 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 		}
 		c.b.glyphCodes += len(raw.Bytes)
 		text.RawCodes = append(text.RawCodes, raw.Bytes...)
-		var decoded string
-		var codes []decodedCode
-		var complete bool
-		var decodeError error
-		if font == nil {
-			empty := Font{}
-			decoded, codes, complete, decodeError = empty.decodeBounded(raw.Bytes, c.b.maxUnicodeBytes-c.b.unicodeBytes)
-		} else {
-			decoded, codes, complete, decodeError = font.decodeBounded(raw.Bytes, c.b.maxUnicodeBytes-c.b.unicodeBytes)
-		}
+		decoded, codes, complete, decodeError := font.decodeBounded(raw.Bytes, c.b.maxUnicodeBytes-c.b.unicodeBytes)
 		if decodeError != nil {
 			return decodeError
 		}
@@ -548,17 +541,13 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 		result.WriteString(decoded)
 		text.DecodeComplete = text.DecodeComplete && complete
 		for _, code := range codes {
-			width := float64(0)
-			widthKnown := false
-			if font != nil {
-				width, widthKnown = font.widths[codeNumber(code.bytes)]
-				if !widthKnown {
-					width = font.defaultWidth
-					widthKnown = font.defaultWidthKnown
-				}
-				if !font.PositioningSupported {
-					widthKnown = false
-				}
+			width, widthKnown := font.widths[codeNumber(code.bytes)]
+			if !widthKnown {
+				width = font.defaultWidth
+				widthKnown = font.defaultWidthKnown
+			}
+			if !font.PositioningSupported {
+				widthKnown = false
 			}
 			advance := (width/1000*t.size + t.charSpace) * t.hscale
 			if len(code.bytes) == 1 && code.bytes[0] == 32 {

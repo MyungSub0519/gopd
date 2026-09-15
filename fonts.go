@@ -269,10 +269,7 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	}
 	name, _ := encoding.Value.(Name)
 	if name == "WinAnsiEncoding" || name == "StandardEncoding" {
-		font.simpleEncoding = make(map[byte]string)
-		for code := 32; code <= 126; code++ {
-			font.simpleEncoding[byte(code)] = string(rune(code))
-		}
+		font.simpleEncoding = asciiEncoding()
 	}
 	if name == "WinAnsiEncoding" {
 		for code := 160; code <= 255; code++ {
@@ -292,10 +289,7 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	if name == "" && font.Encoding.Value == nil && font.Subtype == "Type1" {
 		base := string(font.BaseFont)
 		if strings.HasPrefix(base, "Helvetica") || strings.HasPrefix(base, "Times-") || strings.HasPrefix(base, "Courier") {
-			font.simpleEncoding = make(map[byte]string)
-			for code := 32; code <= 126; code++ {
-				font.simpleEncoding[byte(code)] = string(rune(code))
-			}
+			font.simpleEncoding = asciiEncoding()
 		}
 	}
 	if name == "StandardEncoding" || (name == "" && font.Encoding.Value == nil && font.simpleEncoding != nil) {
@@ -329,6 +323,15 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	}
 	return nil
 }
+
+func asciiEncoding() map[byte]string {
+	encoding := make(map[byte]string)
+	for code := 32; code <= 126; code++ {
+		encoding[byte(code)] = string(rune(code))
+	}
+	return encoding
+}
+
 func glyphUnicode(name string) (string, bool) {
 	if len(name) == 1 && name[0] >= 33 && name[0] <= 126 {
 		return name, true

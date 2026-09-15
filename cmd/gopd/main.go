@@ -73,19 +73,18 @@ func run(args []string, out, stderr io.Writer) int {
 		return 0
 	}
 	s := summary{Pages: len(detail.Pages), Texts: len(detail.Texts), Graphics: len(detail.Graphics), Images: len(detail.Images), ImageResources: len(detail.ImageResources), Fonts: len(detail.Fonts), Annotations: len(detail.Annotations), Diagnostics: diagnostics}
+	images := make([]int, len(detail.Pages))
+	for _, image := range detail.Images {
+		images[image.Source.Page]++
+	}
 	for i, page := range detail.Pages {
-		p := pageSummary{Page: i + 1, Complete: page.Complete}
-		for _, item := range page.Items {
-			switch item.Kind {
-			case gopd.ElementText:
-				p.Texts++
-			case gopd.ElementGraphic:
-				p.Graphics++
-			case gopd.ElementImage:
-				p.Images++
-			}
-		}
-		s.PageDetails = append(s.PageDetails, p)
+		s.PageDetails = append(s.PageDetails, pageSummary{
+			Page:     i + 1,
+			Complete: page.Complete,
+			Texts:    len(doc.Texts[i]),
+			Graphics: len(doc.Graphics[i]),
+			Images:   images[i],
+		})
 	}
 	if *jsonOutput {
 		enc := json.NewEncoder(out)
