@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 type ObjectOrigin interface {
 	pdfObjectOrigin()

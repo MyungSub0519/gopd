@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 // DetailedPDF is a semantic snapshot. Slices and the underlying Document are read-only
 // by convention. Elements follow content execution order, not reading order.

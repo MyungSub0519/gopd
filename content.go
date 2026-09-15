@@ -1,4 +1,4 @@
-package pdf
+package gopd
 
 import (
 	"errors"
