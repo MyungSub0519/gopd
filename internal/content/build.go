@@ -18,6 +18,9 @@ func BuildPDF(d *structure.Document) (*DetailedPDF, error) {
 	if d.Encrypted {
 		return p, fmt.Errorf("semantic decoding of encrypted PDF is unsupported")
 	}
+	// The builder's own caps start at fixed ceilings and are then lowered,
+	// never raised, by the caller's limits. A caller can ask for less work
+	// than the default but not for more.
 	b := &semanticBuilder{doc: d, pdf: p, fonts: make(map[model.Span]int), images: make(map[model.Span]int), activeForms: make(map[model.Span]bool), activePages: make(map[model.Span]bool), page: -1, maxDepth: 128, maxObjects: 1000000}
 	b.cmaps = make(map[model.Span]*CMap)
 	b.maxUnicodeBytes = 256 << 20

@@ -13,10 +13,24 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
+// DecodeStream decodes a stream's payload and returns it as a new source.
+//
+// A stream may name several filters, applied in the order written, each with
+// its own entry in /DecodeParms. The decoded bytes become a source of their
+// own so that objects found inside them — the members of an object stream, or
+// the records of a cross-reference stream — can carry spans that address the
+// decoded output rather than the file.
+//
+// Results are cached by encoded range, so decoding the same stream twice is
+// free and the second call returns the same source. Output is charged against
+// the session-wide decoded byte budget, which is what bounds a stream that
+// expands without limit.
 func (d *Document) DecodeStream(stream model.Stream) (model.Source, error) {
 	if d.Encrypted {
 		return model.Source{}, errors.New("encrypted stream decoding is not supported")
 	}
+	// /F means the payload lives in an external file. Honouring it would
+	// mean reading something outside the snapshot this Document owns.
 	if _, err := stream.Dictionary.Get("F"); err == nil {
 		return model.Source{}, errors.New("external stream data is not supported")
 	} else if !errors.Is(err, model.ErrMissingKey) {
@@ -53,6 +67,9 @@ func (d *Document) DecodeStream(stream model.Stream) (model.Source, error) {
 	} else if !errors.Is(e, model.ErrMissingKey) {
 		return model.Source{}, e
 	}
+	// /DecodeParms parallels /Filter: a single dictionary when there is one
+	// filter, or an array with one entry per filter, where a null entry
+	// means that filter takes its defaults.
 	params := make([]*model.Object, len(filters))
 	if object, e := stream.Dictionary.Get("DecodeParms"); e == nil {
 		object, e = d.ResolveObject(object)
@@ -93,6 +110,8 @@ func (d *Document) DecodeStream(stream model.Stream) (model.Source, error) {
 		if !ok {
 			return model.Source{}, errors.New("filter name is not a PDF name")
 		}
+		// Each filter consumes the previous one's output, so the pipeline
+		// is a fold over data rather than independent decodings.
 		data, err = decodeFilter(name, data, params[i], remaining)
 		if err != nil {
 			return model.Source{}, fmt.Errorf("/%s: %w", name, err)
@@ -113,6 +132,16 @@ func (d *Document) DecodeStream(stream model.Stream) (model.Source, error) {
 	return source, nil
 }
 
+// decodeFilter applies one filter and returns its output.
+//
+// Each filter accepts both its full name and the abbreviation permitted in
+// inline images, since the same decoder serves both.
+//
+// Only the general-purpose filters are implemented. The image codecs —
+// DCTDecode, CCITTFaxDecode, JPXDecode, JBIG2Decode — are deliberately absent,
+// because this library does not render and an image's bytes are more useful
+// left in their encoded form. LZWDecode is absent as an outright gap: it is a
+// general-purpose filter, and a file that uses it cannot currently be read.
 func decodeFilter(name model.Name, data []byte, params *model.Object, limit int64) ([]byte, error) {
 	var result []byte
 	var err error
@@ -131,6 +160,8 @@ func decodeFilter(name model.Name, data []byte, params *model.Object, limit int6
 			result, err = applyPredictor(result, params, limit)
 		}
 	case "ASCIIHexDecode", "AHx":
+		// Hex digits, optional whitespace, terminated by '>'. An odd final
+		// digit is padded with a zero rather than being an error.
 		digits := make([]byte, 0, min(len(data), 4096))
 		terminated := false
 		for _, c := range data {
@@ -171,6 +202,9 @@ func decodeFilter(name model.Name, data []byte, params *model.Object, limit int6
 		}
 		result, err = readDecodeLimit(ascii85.NewDecoder(bytes.NewReader(clean)), limit)
 	case "RunLengthDecode", "RL":
+		// Each run starts with a length byte: 0..127 means copy the next
+		// n+1 bytes literally, 129..255 means repeat the next byte 257-n
+		// times, and 128 ends the data.
 		terminated := false
 		for pos := 0; pos < len(data); {
 			n := int(data[pos])
@@ -217,6 +251,11 @@ func decodeFilter(name model.Name, data []byte, params *model.Object, limit int6
 	return result, nil
 }
 
+// readDecodeLimit reads from r, stopping once more than limit bytes have
+// arrived.
+//
+// It reads one byte past the limit on purpose, so that hitting the cap can be
+// told apart from ending exactly at it.
 func readDecodeLimit(r io.Reader, limit int64) ([]byte, error) {
 	// Read one extra byte to detect exhaustion without overflowing MaxInt64.
 	n := limit
@@ -226,6 +265,7 @@ func readDecodeLimit(r io.Reader, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(r, n))
 }
 
+// predictorInt reads a predictor parameter, returning fallback when absent.
 func predictorInt(dict model.Dictionary, key model.Name, fallback int64) (int64, error) {
 	o, err := dict.Get(key)
 	if errors.Is(err, model.ErrMissingKey) {
@@ -237,6 +277,20 @@ func predictorInt(dict model.Dictionary, key model.Name, fallback int64) (int64,
 	return model.Int(o)
 }
 
+// applyPredictor reverses the row filter applied before compression.
+//
+// A predictor does not compress; it rewrites each sample as a difference from
+// a neighbouring one so that the compressor downstream sees smaller, more
+// repetitive numbers. Undoing it therefore means walking rows in order and
+// adding back what was subtracted.
+//
+// Two families exist. Predictor 2 is the TIFF form, which subtracts the
+// sample to the left and has no per-row overhead. Predictors 10 and above are
+// the PNG forms, where each row is prefixed by a byte naming the filter used
+// for that row, so rows in one stream may use different filters.
+//
+// Cross-reference streams rely on this heavily: their records are highly
+// repetitive, and PNG-Up prediction makes them compress well.
 func applyPredictor(data []byte, params *model.Object, limit int64) ([]byte, error) {
 	if params == nil {
 		return data, nil
@@ -333,6 +387,9 @@ func applyPredictor(data []byte, params *model.Object, limit int64) ([]byte, err
 	}
 	return out, nil
 }
+
+// sampleBits reads a bits-wide sample starting at bit offset start. Samples
+// are not necessarily byte-aligned: 1, 2 and 4 bit depths pack several per byte.
 func sampleBits(data []byte, start, bits int) uint32 {
 	var n uint32
 	for i := 0; i < bits; i++ {
@@ -341,6 +398,9 @@ func sampleBits(data []byte, start, bits int) uint32 {
 	}
 	return n
 }
+
+// putSampleBits writes a bits-wide sample at bit offset start, the inverse of
+// sampleBits.
 func putSampleBits(data []byte, start, bits int, n uint32) {
 	for i := 0; i < bits; i++ {
 		at := start + i
@@ -352,6 +412,9 @@ func putSampleBits(data []byte, start, bits int, n uint32) {
 		}
 	}
 }
+
+// paeth is the PNG Paeth predictor: of the left, above and upper-left
+// neighbours, it picks whichever is closest to their linear estimate a+b-c.
 func paeth(a, b, c byte) byte {
 	p := int(a) + int(b) - int(c)
 	pa, pb, pc := absInt(p-int(a)), absInt(p-int(b)), absInt(p-int(c))
@@ -363,6 +426,9 @@ func paeth(a, b, c byte) byte {
 	}
 	return c
 }
+
+// absInt returns the absolute value of n, which the Paeth predictor needs to
+// compare its three candidates.
 func absInt(n int) int {
 	if n < 0 {
 		return -n

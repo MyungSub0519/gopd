@@ -4,11 +4,17 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
-// PDF is the basic result returned by ParsePDF. The outer slice index is the
-// zero-based page index; empty pages contain non-nil empty slices. Each inner
-// slice follows content execution order for its kind, not reading order.
-// Treat results and shared resources as read-only. Detailed analysis is retained
-// privately and excluded from JSON encoding.
+// PDF is the simplified result: text and graphics already grouped by page.
+//
+// The outer index is the zero-based page number, and a page with no content
+// still has a non-nil empty slice, so the shape of the result always matches
+// the page count. Within a page, elements are in content execution order, not
+// reading order.
+//
+// This is a projection of a DetailedPDF, which is retained and reachable
+// through Details. It is not a cheaper parse: the full interpretation happened
+// either way. The retained detail is unexported so that encoding a PDF to JSON
+// does not drag the whole document along.
 type PDF struct {
 	Texts    [][]Text
 	Graphics [][]Graphic
@@ -16,8 +22,14 @@ type PDF struct {
 	details *DetailedPDF
 }
 
-// Text is one text-show operation. Matrix is in unrotated page user space,
-// before font scaling. Glyph positions and source bytes are available in Details.
+// Text is one text-showing operation, flattened.
+//
+// Matrix is in unrotated page user space, before font scaling. Per-glyph
+// positions and the original bytes are not here; use Details for those.
+//
+// DecodeComplete and PositionComplete are the honesty flags: false means the
+// text or its placement is partly guesswork, usually because the font had no
+// usable encoding or no widths.
 type Text struct {
 	Page             int
 	Unicode          string
@@ -30,7 +42,10 @@ type Text struct {
 	PositionComplete bool
 }
 
-// Graphic is one path painting operation; it is not a whole chart or figure.
+// Graphic is one path-painting operation.
+//
+// It is a single fill or stroke, not a figure: a chart drawn as hundreds of
+// separate paths yields hundreds of Graphics, and nothing here groups them.
 type Graphic struct {
 	Page                  int
 	Segments              []PathSegment
@@ -39,7 +54,11 @@ type Graphic struct {
 	Style                 PaintStyle
 }
 
-// PathSegment points are already transformed into unrotated page user space.
+// PathSegment is one segment of a path, with Operator naming the construction
+// operator that produced it.
+//
+// Points have already been transformed into unrotated page user space, so no
+// further matrix needs to be applied to place them.
 type PathSegment struct {
 	Operator string
 	Points   []model.Point

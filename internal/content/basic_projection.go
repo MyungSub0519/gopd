@@ -4,6 +4,15 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
+// BasicPDF projects a detailed result into the simplified, page-grouped form.
+//
+// It regroups rather than reparses: the detailed slices are document-wide, and
+// each element knows its page through its source, so this is a redistribution
+// of work already done. The detailed result is retained in the projection, so
+// nothing is lost by taking the simpler view.
+//
+// FontInfo values are shared between every Text using the same font, which is
+// why they are pointers: callers must treat them as read-only.
 func BasicPDF(detail *DetailedPDF) *PDF {
 	if detail == nil {
 		return nil
@@ -12,6 +21,8 @@ func BasicPDF(detail *DetailedPDF) *PDF {
 		Texts: make([][]Text, len(detail.Pages)), Graphics: make([][]Graphic, len(detail.Pages)),
 		details: detail,
 	}
+	// Empty but non-nil, so a page with no content is distinguishable from a
+	// page that was never built, and so JSON renders [] rather than null.
 	for page := range detail.Pages {
 		p.Texts[page] = []Text{}
 		p.Graphics[page] = []Graphic{}
@@ -35,6 +46,8 @@ func BasicPDF(detail *DetailedPDF) *PDF {
 	for _, graphic := range detail.Graphics {
 		segments := make([]PathSegment, len(graphic.Segments))
 		for j, segment := range graphic.Segments {
+			// Copy the points: the basic result must not alias the
+			// detailed one, or mutating either would corrupt both.
 			segments[j] = PathSegment{Operator: segment.Operator, Points: append([]model.Point{}, segment.Points...)}
 		}
 		page := graphic.Source.Page
@@ -46,6 +59,8 @@ func BasicPDF(detail *DetailedPDF) *PDF {
 	return p
 }
 
+// basicStyle flattens a graphics state into the reportable subset, dropping
+// the geometry and keeping only a flag to say that clipping was in effect.
 func basicStyle(state GraphicsState) PaintStyle {
 	stroke, fill := state.Stroke, state.Fill
 	stroke.Components = append([]float64{}, stroke.Components...)

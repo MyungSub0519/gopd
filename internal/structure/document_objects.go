@@ -9,7 +9,18 @@ import (
 	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
+// Load returns the object with the given identity, parsing it on first use.
+//
+// The cross-reference decides where to look: an in-use entry gives a file
+// offset, while a compressed entry names an object stream to look inside. A
+// second call for the same identity is served from the cache.
+//
+// Loading an object can require loading another — a compressed object needs
+// its container, whose /Length may itself be a reference — so a cycle is
+// possible and is detected here rather than by recursing until the stack ends.
 func (d *Document) Load(id model.ObjectID) (*model.IndirectObject, error) {
+	// Object number zero is reserved as the head of the free list and never
+	// names a real object.
 	if id.Number == 0 {
 		return nil, errors.New("object zero is reserved")
 	}
@@ -29,6 +40,9 @@ func (d *Document) Load(id model.ObjectID) (*model.IndirectObject, error) {
 	var err error
 	switch entry := record.Entry.(type) {
 	case model.InUseEntry:
+		// The xref and the file must agree on the generation. A mismatch
+		// means one of them is stale, and preferring either would be a
+		// guess about which.
 		if entry.Generation != id.Generation {
 			return nil, fmt.Errorf("generation mismatch for object %v (xref generation %d)", id, entry.Generation)
 		}
@@ -56,6 +70,12 @@ func (d *Document) Load(id model.ObjectID) (*model.IndirectObject, error) {
 	return obj, nil
 }
 
+// parseIndirect parses the object definition at a file offset: the
+// "n g obj" header, the body, an optional stream payload, and endobj.
+//
+// Results are memoised by offset, because two cross-reference entries may
+// point at the same bytes and parsing them twice would record the same
+// occurrence twice in Structure.Objects.
 func (d *Document) parseIndirect(start int) (*model.IndirectObject, error) {
 	if old, ok := d.physical[int64(start)]; ok {
 		return old, nil
@@ -95,6 +115,10 @@ func (d *Document) parseIndirect(start int) (*model.IndirectObject, error) {
 		if pos >= len(d.data) {
 			return nil, errors.New("truncated stream start")
 		}
+		// The stream keyword must be followed by LF or CRLF, and the
+		// payload starts immediately after. A lone CR is not allowed:
+		// treating it as a terminator would swallow a payload byte when
+		// the real terminator is CRLF.
 		switch d.data[pos] {
 		case '\n':
 			pos++
@@ -111,6 +135,9 @@ func (d *Document) parseIndirect(start int) (*model.IndirectObject, error) {
 		if err != nil {
 			return nil, fmt.Errorf("stream /Length: %w", err)
 		}
+		// /Length is taken at face value, then checked against endstream
+		// below. There is no recovery path: a stream whose /Length is wrong
+		// is rejected rather than having its boundary rebuilt.
 		if length < 0 || length > int64(len(d.data)-dataStart) {
 			return nil, errors.New("stream Length outside file")
 		}
@@ -155,6 +182,16 @@ func (d *Document) parseIndirect(start int) (*model.IndirectObject, error) {
 	return obj, nil
 }
 
+// loadCompressed extracts one object from an object stream.
+//
+// An object stream packs many objects into a single compressed payload. Its
+// decoded bytes start with a header of "number offset" pairs, whose total
+// length is given by /First, followed by the object bodies themselves. The
+// entry's Index selects which pair to use, and the next pair's offset — or the
+// end of the payload — bounds the body.
+//
+// Objects stored this way have no file offset, so their spans address the
+// container's decoded source instead.
 func (d *Document) loadCompressed(id model.ObjectID, entry model.CompressedEntry) (*model.IndirectObject, error) {
 	container, err := d.Load(model.ObjectID{Number: entry.StreamNumber})
 	if err != nil {
@@ -184,6 +221,8 @@ func (d *Document) loadCompressed(id model.ObjectID, entry model.CompressedEntry
 	if err != nil {
 		return nil, err
 	}
+	// Each header pair needs at least three bytes, so a /N larger than the
+	// header could hold is a lie about the payload.
 	if first > int64(len(data)) || n > first/3 {
 		return nil, errors.New("object stream header outside decoded data")
 	}
@@ -208,6 +247,8 @@ func (d *Document) loadCompressed(id model.ObjectID, entry model.CompressedEntry
 			return nil, errors.New("invalid object stream header pair")
 		}
 		seen[uint32(num)] = true
+		// Offsets must increase: that is what lets the next pair bound the
+		// current body, and it rules out overlapping or reordered entries.
 		if i > 0 && int64(off) <= pairs[len(pairs)-1].offset {
 			return nil, errors.New("object stream offsets are not increasing")
 		}
@@ -216,6 +257,7 @@ func (d *Document) loadCompressed(id model.ObjectID, entry model.CompressedEntry
 	if skipDocSpace(data[:int(first)], pos) != int(first) {
 		return nil, errors.New("extra object stream header data")
 	}
+	// The xref and the container must name the same object at this index.
 	p := pairs[entry.Index]
 	if p.number != id.Number {
 		return nil, errors.New("object stream index points to wrong object number")

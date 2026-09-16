@@ -4,6 +4,10 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
+// The types in this file are retained only so that existing source keeps
+// compiling. Nothing in this package produces them; each doc comment names the
+// current type to use instead.
+
 // Page is a legacy page view retained for source compatibility.
 // Current basic results group Texts and Graphics directly by page.
 // Complete reports interpreter diagnostics, not full rendering support.

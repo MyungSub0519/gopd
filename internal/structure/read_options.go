@@ -6,13 +6,26 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
-// ReadOptions bounds input, recursive parsing, xrefs and decoded stream data.
-// Zero fields use defaults. Negative values are invalid.
+// ReadOptions bounds a single read: how large an input is accepted, and how
+// much work parsing it may perform.
+//
+// A zero field means "use the default", so the zero ReadOptions is the usual
+// configuration rather than a degenerate one. A negative field is rejected, on
+// the grounds that it is far more likely to be a bug than a request for
+// unlimited work.
 type ReadOptions struct {
+	// MaxFileBytes caps the input snapshot; the default is 256 MiB.
 	MaxFileBytes int64
-	Limits       model.Limits
+
+	// Limits caps the work done over that input; see model.Limits.
+	Limits model.Limits
 }
 
+// normalizeOptions validates the caller's options and fills in defaults.
+//
+// It takes a slice because the public entry points accept options variadically,
+// which is how an optional argument is expressed without a second function;
+// more than one value is a mistake rather than a merge.
 func normalizeOptions(options []ReadOptions) (ReadOptions, error) {
 	if len(options) > 1 {
 		return ReadOptions{}, errors.New("at most one ReadOptions value is accepted")

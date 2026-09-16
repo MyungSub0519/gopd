@@ -7,11 +7,19 @@ import (
 	"strconv"
 )
 
-// ErrMissingKey identifies absent dictionary keys. Use errors.Is to distinguish
-// a missing key from a duplicate key or another lookup failure.
+// ErrMissingKey reports that a dictionary key is absent.
+//
+// Use errors.Is to test for it. An absent key is routine in PDF, where most
+// entries are optional and have defaults, so callers need to tell it apart
+// from a genuine lookup failure such as a duplicate key.
 var ErrMissingKey = errors.New("PDF dictionary key is missing")
 
-// Get rejects duplicate keys rather than silently discarding original entries.
+// Get returns the value stored under key.
+//
+// A duplicate key is an error rather than a silent choice. The specification
+// does not define which occurrence wins, so picking one would discard data the
+// file actually contains; GetAll exposes every occurrence for callers that
+// want to inspect the damage instead.
 func (d Dictionary) Get(key Name) (Object, error) {
 	var value Object
 	found := false
@@ -29,7 +37,8 @@ func (d Dictionary) Get(key Name) (Object, error) {
 	return value, nil
 }
 
-// GetAll retains the stored order, including duplicate keys in damaged files.
+// GetAll returns every value stored under key, in the order written. It is the
+// way to inspect a damaged dictionary that Get rejects for having duplicates.
 func (d Dictionary) GetAll(key Name) []Object {
 	var values []Object
 	for _, entry := range d.Entries {
@@ -40,8 +49,12 @@ func (d Dictionary) GetAll(key Name) []Object {
 	return values
 }
 
-// Int converts a direct PDF Integer into int64, rejecting other types and
-// out-of-range values. Resolve indirect references before calling Int.
+// Int converts a direct PDF Integer to int64.
+//
+// A Real is rejected even when it holds a whole number, because the places
+// that call for an integer — object numbers, /Length, array indices — are
+// defined to require one. Indirect references are not followed; resolve them
+// with Document.ResolveObject first.
 func Int(object Object) (int64, error) {
 	n, ok := object.Value.(Integer)
 	if !ok {
@@ -54,8 +67,12 @@ func Int(object Object) (int64, error) {
 	return v, nil
 }
 
-// Number converts a direct Integer or Real into a finite float64. It does not
-// resolve indirect references or preserve exact decimal precision.
+// Number converts a direct Integer or Real to a finite float64.
+//
+// Infinities and NaN are rejected: they cannot appear in valid PDF syntax, and
+// letting one through would silently poison every later coordinate computation
+// it takes part in. Exact decimal precision is not preserved, and indirect
+// references are not followed.
 func Number(object Object) (float64, error) {
 	var text string
 	switch n := object.Value.(type) {
@@ -73,6 +90,6 @@ func Number(object Object) (float64, error) {
 	return n, nil
 }
 
-// IsStream reports whether object directly contains a Stream. It does not
-// follow references; use Document.ResolveObject first when necessary.
+// IsStream reports whether object directly holds a Stream. It does not follow
+// references; use Document.ResolveObject first when the object may be indirect.
 func IsStream(object Object) bool { _, ok := object.Value.(Stream); return ok }

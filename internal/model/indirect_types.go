@@ -1,22 +1,55 @@
 package model
 
+// ObjectOrigin describes where an indirect object was physically found.
+//
+// The same logical object can be stored in two very different ways, and a
+// caller auditing a file needs to tell them apart: a top-level object occupies
+// a byte range of the file itself, while a compressed object exists only
+// inside another object's decoded payload and has no file range of its own.
+//
+// The interface is sealed by an unexported method, so the two cases below are
+// exhaustive and a type switch over them needs no open-ended default.
 type ObjectOrigin interface {
 	pdfObjectOrigin()
 }
 
+// FileObjectOrigin locates an object written directly in the file as
+// "n g obj ... endobj".
 type FileObjectOrigin struct {
-	Whole  Span  // n g obj부터 확인한 endobj까지
-	Header Span  // n g obj
-	EndObj *Span // 손상으로 확인하지 못하면 nil
+	// Whole spans the entire definition, from the object header through the
+	// confirmed endobj keyword.
+	Whole Span
+
+	// Header spans just the "n g obj" introducer.
+	Header Span
+
+	// EndObj spans the endobj keyword, or is nil when damage prevented
+	// confirming it.
+	EndObj *Span
 }
 
+// ObjectStreamOrigin locates an object stored inside an object stream
+// (/Type /ObjStm), where many objects share one compressed payload.
 type ObjectStreamOrigin struct {
-	Container     ObjectID
-	ContainerSpan Span   // 원본 파일의 정확한 컨테이너 발생 위치
-	Index         uint32 // object stream 내부 순번, generation이 아님
-	HeaderPair    Span   // 디코딩 소스 안의 객체 번호/상대 오프셋 쌍
+	// Container identifies the object stream holding this object.
+	Container ObjectID
+
+	// ContainerSpan is where the container occurs in the original file,
+	// which is the only byte range in this struct that addresses the file.
+	ContainerSpan Span
+
+	// Index is the object's ordinal within the container. It is not a
+	// generation number: objects in an object stream always have generation
+	// zero, and the two are easy to confuse.
+	Index uint32
+
+	// HeaderPair spans the object number and relative offset pair, located
+	// in the container's decoded source rather than in the file.
+	HeaderPair Span
 }
 
+// IndirectObject is one numbered object together with its body and the
+// location it was read from.
 type IndirectObject struct {
 	ID     ObjectID
 	Body   Object

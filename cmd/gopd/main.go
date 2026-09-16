@@ -1,4 +1,14 @@
 // Command gopd inspects PDF structure and classified page content.
+//
+// Usage:
+//
+//	gopd file.pdf          counts per document and per page
+//	gopd -text file.pdf     extracted text, in content execution order
+//	gopd -json file.pdf     the same counts as JSON
+//
+// The text output is in drawing order, not reading order: this tool does not
+// reconstruct columns or paragraphs. Diagnostics are counted but not listed;
+// the library's Details result holds them in full.
 package main
 
 import (
@@ -11,6 +21,8 @@ import (
 	"github.com/MyungSub0519/gopd"
 )
 
+// pageSummary and summary are the JSON shape of the report. They exist so the
+// -json output has a declared schema rather than being assembled ad hoc.
 type pageSummary struct {
 	Page     int  `json:"page"`
 	Texts    int  `json:"texts"`
@@ -18,6 +30,8 @@ type pageSummary struct {
 	Images   int  `json:"images"`
 	Complete bool `json:"interpretation_complete"`
 }
+
+// summary is the whole-document report; PageDetails breaks it down per page.
 type summary struct {
 	Pages          int           `json:"pages"`
 	Texts          int           `json:"texts"`
@@ -30,11 +44,15 @@ type summary struct {
 	PageDetails    []pageSummary `json:"page_details"`
 }
 
-// pdfparse returns the basic PDF object. Detailed data is available via Details().
+// pdfparse wraps the library entry point so that tests can exercise the
+// failure path without going through run.
 func pdfparse(path string) (*gopd.PDF, error) {
 	return gopd.ParsePDF(path)
 }
 
+// run is main's body, with its streams and arguments injected so it can be
+// tested. The return value is the process exit code: 0 on success, 1 for a
+// failure to read the document, 2 for a usage error.
 func run(args []string, out, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gopd", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -53,6 +71,9 @@ func run(args []string, out, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "gopd:", err)
 		return 1
 	}
+	// Diagnostics come from two places: the content interpreter's findings,
+	// and the structural ones the reader collected. Both matter to a caller
+	// judging how much of the document was understood.
 	detail := doc.Details()
 	diagnostics := len(detail.Diagnostics)
 	if detail.Structure != nil {
@@ -60,6 +81,8 @@ func run(args []string, out, stderr io.Writer) int {
 	}
 	if *textOnly {
 		for i, texts := range doc.Texts {
+			// Pages are separated by a form feed, so downstream tools can
+			// split the output back into pages.
 			if i > 0 {
 				fmt.Fprintln(out, "\f")
 			}
@@ -73,6 +96,7 @@ func run(args []string, out, stderr io.Writer) int {
 		return 0
 	}
 	s := summary{Pages: len(detail.Pages), Texts: len(detail.Texts), Graphics: len(detail.Graphics), Images: len(detail.Images), ImageResources: len(detail.ImageResources), Fonts: len(detail.Fonts), Annotations: len(detail.Annotations), Diagnostics: diagnostics}
+	// Images are stored document-wide, so count them back per page.
 	images := make([]int, len(detail.Pages))
 	for _, image := range detail.Images {
 		images[image.Source.Page]++

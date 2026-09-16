@@ -9,6 +9,18 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
+// font describes a font resource and returns its index in DetailedPDF.Fonts.
+//
+// Results are cached by span, so a font used on every page is described once.
+//
+// Two shapes of font exist and they are handled quite differently. A simple
+// font maps one byte to one glyph and carries /Widths indexed from /FirstChar.
+// A composite font (/Type0) delegates to a descendant CID font, where codes
+// may be multi-byte and widths come from the descendant's /W array.
+//
+// The capability flags are set conservatively here, because being wrong about
+// them is worse than admitting ignorance: text would be reported as correct
+// when it is not. See Font.
 func (b *semanticBuilder) font(resource model.Object) (int, error) {
 	object, err := b.doc.ResolveObject(resource)
 	if err != nil {
@@ -36,6 +48,9 @@ func (b *semanticBuilder) font(resource model.Object) (int, error) {
 		return -1, err
 	}
 	font.composite = font.Subtype == "Type0"
+	// Only these simple subtypes have a horizontal writing mode and a width
+	// source this reader understands. Type0 may join them below, but only
+	// with Identity-H.
 	font.PositioningSupported = font.Subtype == "Type1" || font.Subtype == "MMType1" || font.Subtype == "TrueType"
 	if font.Subtype == "Type3" {
 		b.diag("unsupported-type3-font", "Type3 glyph content and font-matrix positioning are retained without execution", object.Span)
@@ -63,6 +78,10 @@ func (b *semanticBuilder) font(resource model.Object) (int, error) {
 		}
 		encoding, ok := font.Encoding.Value.(model.Name)
 		font.vertical = ok && strings.HasSuffix(string(encoding), "-V")
+		// Identity-H is the one predefined CMap handled here: it maps two
+		// bytes straight to a CID with no table. The predefined CJK CMaps
+		// would each need their own mapping data, so a font using one is
+		// diagnosed rather than mis-measured.
 		font.PositioningSupported = encoding == "Identity-H"
 		if !ok || (encoding != "Identity-H" && encoding != "Identity-V") {
 			b.diag("unsupported-font-encoding", "Composite font encoding is not Identity-H/Identity-V; code widths and positioning may be incomplete", font.Encoding.Span)
@@ -188,6 +207,12 @@ func (b *semanticBuilder) font(resource model.Object) (int, error) {
 	return index, nil
 }
 
+// cidWidths reads a CID font's /W array.
+//
+// The array mixes two forms: "c [w1 w2 ...]" gives widths to consecutive CIDs
+// starting at c, while "cFirst cLast w" gives one width to a whole range. The
+// second form can name an enormous range cheaply, so expansion is charged
+// against a budget before it happens.
 func (b *semanticBuilder) cidWidths(font *Font, object model.Object) error {
 	array, ok := object.Value.(model.Array)
 	if !ok {
@@ -242,6 +267,8 @@ func (b *semanticBuilder) cidWidths(font *Font, object model.Object) error {
 	return nil
 }
 
+// reserveWidths charges width entries against the document-wide budget, so
+// that a compact /W array cannot expand into unbounded memory.
 func (b *semanticBuilder) reserveWidths(count int) error {
 	if count > b.maxObjects-b.widthEntries {
 		return fmt.Errorf("font width expansion limit exceeded")
@@ -250,6 +277,15 @@ func (b *semanticBuilder) reserveWidths(count int) error {
 	return nil
 }
 
+// simpleFontEncoding builds the byte-to-text table for a simple font.
+//
+// The base encoding comes first, then /Differences overrides individual codes
+// by glyph name. WinAnsiEncoding is built without a glyph-name table by
+// exploiting the fact that its upper half coincides with Latin-1, so only the
+// 128-159 range needs explicit entries.
+//
+// Not handled: MacRomanEncoding and MacExpertEncoding have no base table here,
+// so a font using either gets only what /Differences and /ToUnicode supply.
 func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	encoding := font.Encoding
 	var differences model.Array
@@ -326,6 +362,8 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	return nil
 }
 
+// asciiEncoding returns the printable ASCII range, which StandardEncoding and
+// WinAnsiEncoding share and which callers then adjust.
 func asciiEncoding() map[byte]string {
 	encoding := make(map[byte]string)
 	for code := 32; code <= 126; code++ {
@@ -334,6 +372,16 @@ func asciiEncoding() map[byte]string {
 	return encoding
 }
 
+// glyphUnicode maps a glyph name to text, for names appearing in a
+// /Differences array.
+//
+// Three sources are consulted: a single printable ASCII character stands for
+// itself, a short table covers the most common named glyphs, and the
+// algorithmic uniXXXX and uXXXX forms are decoded directly.
+//
+// The table is deliberately tiny next to the Adobe Glyph List, which has some
+// 4300 entries. Names outside it fail to map, and the font's /ToUnicode CMap —
+// which takes priority in decodeBounded — usually covers those cases anyway.
 func glyphUnicode(name string) (string, bool) {
 	if len(name) == 1 && name[0] >= 33 && name[0] <= 126 {
 		return name, true
@@ -356,6 +404,18 @@ func glyphUnicode(name string) (string, bool) {
 	}
 	return "", false
 }
+
+// decodeBounded turns character codes into text, splitting raw into codes as
+// it goes.
+//
+// A /ToUnicode CMap takes precedence when present, because it is the producer's
+// own statement of what the codes mean. Otherwise a simple font's encoding
+// table is consulted one byte at a time.
+//
+// A code that cannot be mapped becomes U+FFFD and clears the complete flag, so
+// the output stays aligned with the input and the caller can still see how
+// much was understood. The limit bounds total expansion, since one code may
+// map to several runes.
 func (f *Font) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bool, error) {
 	if f.ToUnicode != nil {
 		return f.ToUnicode.decodeBounded(raw, limit)
@@ -364,6 +424,9 @@ func (f *Font) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bo
 	var codes []decodedCode
 	complete := true
 	for at := 0; at < len(raw); {
+		// Without a CMap, a composite font's codes are assumed two bytes
+		// wide, which is what Identity-H uses; they are not mapped to
+		// text, only counted, so that glyph positions stay aligned.
 		size := 1
 		if f.composite && at+2 <= len(raw) {
 			size = 2

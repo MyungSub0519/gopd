@@ -8,20 +8,37 @@ import (
 	"github.com/MyungSub0519/gopd/internal/model"
 )
 
+// textState is the text-related part of the graphics state.
+//
+// It is kept apart from GraphicsState because it is not reported: these are
+// the parameters used to place glyphs, and once that is done the positions
+// themselves are what callers need. Every field is set by its own operator —
+// Tf, Tc, Tw, Tz, TL, Ts, Tr — and persists until changed or until Q restores
+// an earlier state.
 type textState struct {
 	font                                              int
 	size, charSpace, wordSpace, hscale, leading, rise float64
 	renderMode                                        int
 }
+
+// contentState is everything q saves and Q restores.
 type contentState struct {
 	graphics GraphicsState
 	text     textState
 }
 
+// initialContentState returns the state a content stream begins with, as the
+// specification defines it: identity transform, one-unit black lines, opaque
+// normal blending, no font selected and unscaled text.
 func initialContentState() contentState {
 	return contentState{graphics: GraphicsState{CTM: model.IdentityMatrix(), LineWidth: 1, MiterLimit: 10, Stroke: Color{Space: "DeviceGray", Components: []float64{0}}, Fill: Color{Space: "DeviceGray", Components: []float64{0}}, StrokeAlpha: 1, FillAlpha: 1, BlendMode: "Normal", Complete: true}, text: textState{font: -1, hscale: 1}}
 }
 
+// operationNumbers reads exactly n numeric operands.
+//
+// The count is exact rather than a minimum: content streams are postfix with
+// no delimiters, so a wrong operand count means the stream has been misread
+// and accepting extras would compound the error.
 func operationNumbers(op Operation, n int) ([]float64, error) {
 	if len(op.Operands) != n {
 		return nil, fmt.Errorf("expected %d operands, got %d", n, len(op.Operands))
@@ -36,6 +53,8 @@ func operationNumbers(op Operation, n int) ([]float64, error) {
 	}
 	return numbers, nil
 }
+
+// operationName reads a single name operand.
 func operationName(op Operation) (model.Name, error) {
 	if len(op.Operands) != 1 {
 		return "", fmt.Errorf("expected one name operand")
@@ -46,17 +65,31 @@ func operationName(op Operation) (model.Name, error) {
 	}
 	return name, nil
 }
+
+// noOperands checks that an operator was given none, which catches operands
+// left behind by an earlier misreading.
 func noOperands(op Operation) error {
 	if len(op.Operands) != 0 {
 		return fmt.Errorf("expected no operands")
 	}
 	return nil
 }
+
+// translate returns a translation matrix, the shape most text positioning
+// operators need.
 func translate(x, y float64) model.Matrix { return model.Matrix{1, 0, 0, 1, x, y} }
 
+// finitePoint and finiteMatrix guard against coordinates that have overflowed.
+//
+// Content streams compound transformations, so one extreme operand can push
+// everything downstream to infinity or NaN. Detecting that at the point it
+// happens keeps a poisoned value from silently spreading through every later
+// element.
 func finitePoint(p model.Point) bool {
 	return !math.IsNaN(p.X) && !math.IsNaN(p.Y) && !math.IsInf(p.X, 0) && !math.IsInf(p.Y, 0)
 }
+
+// finiteMatrix reports whether every element of m is finite; see finitePoint.
 func finiteMatrix(m model.Matrix) bool {
 	for _, v := range m {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -66,6 +99,19 @@ func finiteMatrix(m model.Matrix) bool {
 	return true
 }
 
+// execute applies one operator to the state.
+//
+// The switch is the heart of the interpreter, and is ordered roughly as the
+// specification groups operators: graphics state, then colour, then path
+// construction and painting, then text, then XObjects and marked content.
+//
+// Two kinds of failure are distinguished throughout. Returning an error means
+// the stream cannot be trusted any further — a malformed operand, an
+// unbalanced stack, an arithmetic overflow — and abandons the page. Calling
+// unsupported means the instruction was understood but its effect cannot be
+// reproduced, which records a diagnostic and carries on. Unknown operators
+// take the second path, so a file using an extension this reader has never
+// heard of still yields its text.
 func (c *contentInterpreter) execute(op Operation, index int) error {
 	g := &c.state.graphics
 	t := &c.state.text
@@ -358,6 +404,13 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 	return nil
 }
 
+// pathOperation handles the path construction operators: m, l, c, v, y, h and
+// re.
+//
+// Segments are transformed into page space as they are built, using the CTM in
+// force at that moment. That matters because the CTM can change between
+// construction and painting, and the specification fixes each segment at the
+// transform that was current when it was constructed.
 func (c *contentInterpreter) pathOperation(op Operation, index int) error {
 	count := map[string]int{"m": 2, "l": 2, "c": 6, "v": 4, "y": 4, "h": 0, "re": 4}[op.Operator]
 	n, e := operationNumbers(op, count)
@@ -392,6 +445,9 @@ func (c *contentInterpreter) pathOperation(op Operation, index int) error {
 	c.pathOperations = append(c.pathOperations, index)
 	return nil
 }
+
+// currentPoint returns where the path has reached, which is where a relative
+// segment continues from.
 func (c *contentInterpreter) currentPoint() model.Point {
 	segment := c.path[len(c.path)-1]
 	if segment.Operator == "re" {
@@ -399,6 +455,9 @@ func (c *contentInterpreter) currentPoint() model.Point {
 	}
 	return segment.Points[len(segment.Points)-1]
 }
+
+// subpathStart returns the point the current subpath began at, which h closes
+// back to.
 func (c *contentInterpreter) subpathStart() model.Point {
 	for i := len(c.path) - 1; i >= 0; i-- {
 		if c.path[i].Operator == "m" || c.path[i].Operator == "re" {
@@ -407,10 +466,15 @@ func (c *contentInterpreter) subpathStart() model.Point {
 	}
 	return model.Point{}
 }
+
+// rectanglePoints expands a rectangle into its four corners, counter-clockwise
+// from the lower left, which is the order the re operator defines.
 func (c *contentInterpreter) rectanglePoints(r model.Rect) []model.Point {
 	m := c.state.graphics.CTM
 	return []model.Point{m.Transform(r.Min), m.Transform(model.Point{X: r.Max.X, Y: r.Min.Y}), m.Transform(r.Max), m.Transform(model.Point{X: r.Min.X, Y: r.Max.Y})}
 }
+
+// addRectClip clips to a rectangle, used for a form XObject's /BBox.
 func (c *contentInterpreter) addRectClip(r model.Rect, span model.Span) error {
 	points := c.rectanglePoints(r)
 	for _, point := range points {
@@ -420,6 +484,12 @@ func (c *contentInterpreter) addRectClip(r model.Rect, span model.Span) error {
 	}
 	return c.addClip(ClipPath{Segments: []DetailedPathSegment{{Operator: "re", Points: points, Span: span}}})
 }
+
+// addClip pushes a clipping path onto the state.
+//
+// Clips accumulate rather than replace, and q/Q copies the whole slice, so a
+// deeply nested stream can hold many copies of the same paths; the total is
+// therefore charged against a document-wide budget.
 func (c *contentInterpreter) addClip(clip ClipPath) error {
 	count := len(c.state.graphics.Clip) + 1
 	if count > c.b.maxObjects-c.b.clipReferences {
@@ -431,6 +501,12 @@ func (c *contentInterpreter) addClip(clip ClipPath) error {
 	return nil
 }
 
+// paint handles the painting operators: S, s, f, F, f*, B, B*, b, b* and n.
+//
+// Each one ends the current path, so this is where a Graphic is emitted, where
+// a pending W clip finally takes effect, and where the path is reset. The n
+// operator paints nothing, and exists precisely so that a path can be used as
+// a clip and nothing else.
 func (c *contentInterpreter) paint(op Operation, index int) error {
 	if (op.Operator == "s" || op.Operator == "b" || op.Operator == "b*") && len(c.path) > 0 {
 		c.path = append(c.path, DetailedPathSegment{Operator: "h", Points: []model.Point{c.subpathStart()}, Span: op.Span})
@@ -458,11 +534,31 @@ func (c *contentInterpreter) paint(op Operation, index int) error {
 	return nil
 }
 
+// moveText starts a new line, offset from the current line's start.
+//
+// The offset applies to the line matrix, not to where the last glyph left off,
+// which is what makes successive Td operators relative to each other rather
+// than cumulative with the text drawn between them.
 func (c *contentInterpreter) moveText(x, y float64) {
 	c.lineMatrix = c.lineMatrix.Mul(translate(x, y))
 	c.textMatrix = c.lineMatrix
 	c.positionComplete = true
 }
+
+// showText handles the text-showing operators: Tj, TJ, ' and ".
+//
+// All four end up here because they differ only in what they do first: '
+// starts a new line, " also sets word and character spacing, and TJ takes an
+// array mixing strings with numeric adjustments.
+//
+// The advance computed per glyph is
+//
+//	((width/1000 * size) + charSpace [+ wordSpace]) * hscale
+//
+// where the width comes from the font in thousandths of a unit, and wordSpace
+// applies only to single-byte code 32. Getting this right is what makes glyph
+// positions usable; when the font supplies no width the advance is a guess,
+// and WidthKnown says so rather than the position silently being wrong.
 func (c *contentInterpreter) showText(op Operation, index int) error {
 	if !c.inText {
 		return fmt.Errorf("text show outside BT/ET")
@@ -507,8 +603,9 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 	if !finiteMatrix(text.Matrix) {
 		return fmt.Errorf("text transformation overflow")
 	}
-	// A zero Font decodes every code as unsupported with unknown widths, so a
-	// show operator before Tf still yields a Text element flagged incomplete.
+	// A zero Font decodes every code as unsupported with unknown widths, so
+	// a show operator before any Tf still yields a Text element, flagged
+	// incomplete, rather than failing the page.
 	font := &Font{}
 	if t.font >= 0 {
 		font = &c.b.pdf.Fonts[t.font]
@@ -524,6 +621,9 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			if e != nil {
 				return e
 			}
+			// A number inside TJ moves the text position backwards by
+			// that many thousandths of the font size. It is how kerning
+			// is expressed, and the sign is inverted: positive moves left.
 			c.textMatrix = c.textMatrix.Mul(translate(-number/1000*t.size*t.hscale, 0))
 			if !finiteMatrix(c.textMatrix) {
 				return fmt.Errorf("text displacement overflow")
@@ -552,6 +652,9 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 				widthKnown = false
 			}
 			advance := (width/1000*t.size + t.charSpace) * t.hscale
+			// Word spacing applies only to the single byte 32, and
+			// explicitly not to a two-byte code that happens to equal
+			// 32, which is why the length is checked.
 			if len(code.bytes) == 1 && code.bytes[0] == 32 {
 				advance += t.wordSpace * t.hscale
 			}
@@ -582,6 +685,13 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 	return nil
 }
 
+// extGState applies a gs operator: a named dictionary that sets several
+// graphics state parameters at once.
+//
+// It is the back door to the graphics state. Most of its entries duplicate an
+// operator that exists anyway, but some effects — soft masks, blend modes,
+// alpha constants — can only be set this way. Entries whose effect cannot be
+// reproduced are reported through unsupported and the rest still apply.
 func (c *contentInterpreter) extGState(name model.Name, op Operation) error {
 	object, err := c.resource("ExtGState", name)
 	if err != nil {

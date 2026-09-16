@@ -10,7 +10,23 @@ import (
 	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
+// readHeaderAndXRefs bootstraps the document: it validates the header, finds
+// the last trailer, and walks the cross-reference chain back through the
+// file's revision history.
+//
+// A PDF is read back to front. The header says little; what matters is the
+// startxref at the end, which points at the newest cross-reference section,
+// whose /Prev points at the one before it, and so on. Walking that chain
+// newest-first is what makes an incremental update override the revision it
+// was appended to.
+//
+// There is no reconstruction fallback: if startxref, the %%EOF marker or the
+// section it points at is unusable, the read fails rather than scanning the
+// file for object headers. Damaged files that other readers repair are
+// therefore rejected here.
 func (d *Document) readHeaderAndXRefs() error {
+	// The header need not be at byte zero: the specification allows leading
+	// bytes, and files served through other tooling often have them.
 	header := bytes.Index(d.data[:min(len(d.data), 1024)], []byte("%PDF-"))
 	if header < 0 || header+8 > len(d.data) {
 		return errors.New("missing PDF header")
@@ -24,6 +40,8 @@ func (d *Document) readHeaderAndXRefs() error {
 	if header != 0 {
 		d.Structure.Diagnostics = append(d.Structure.Diagnostics, model.Diagnostic{Severity: model.SeverityWarning, Code: "leading-data", Message: "bytes precede PDF header", Span: model.Span{Source: 1, End: int64(header)}})
 	}
+	// The last startxref is the newest one; earlier revisions leave their own
+	// behind, and following one of those would read a stale document.
 	start := bytes.LastIndex(d.data, []byte("startxref"))
 	if start < 0 {
 		return errors.New("missing startxref")
@@ -52,6 +70,8 @@ func (d *Document) readHeaderAndXRefs() error {
 	if !ok {
 		return errors.New("missing trailer")
 	}
+	// An /Encrypt entry that is explicitly null means the document is not
+	// encrypted, which is not the same as the key being absent.
 	if encrypt, e := dict.Get("Encrypt"); e == nil {
 		_, null := encrypt.Value.(model.Null)
 		d.Encrypted = !null
@@ -61,6 +81,12 @@ func (d *Document) readHeaderAndXRefs() error {
 	return nil
 }
 
+// readXRefChain reads the section at offset and recurses through /Prev.
+//
+// Sections are visited newest first, which mergeEntries relies on to decide
+// which definition of an object number wins. seen carries the offsets already
+// visited, so a file whose /Prev loops back is rejected instead of recursing
+// forever.
 func (d *Document) readXRefChain(offset int64, seen map[int64]bool) error {
 	if seen[offset] {
 		return fmt.Errorf("xref cycle/repeated section at byte %d", offset)
@@ -78,7 +104,11 @@ func (d *Document) readXRefChain(offset int64, seen map[int64]bool) error {
 	if d.trailer.Value == nil {
 		d.trailer = section.Trailer
 	}
-	// A hybrid stream overrides its companion table, but never newer revisions.
+	// A hybrid-reference file carries both a table, for readers that predate
+	// cross-reference streams, and a stream holding the entries the table
+	// cannot express. The stream is merged first so that it takes precedence
+	// over its own companion table, but it is merged after every newer
+	// section, so it cannot override a later revision.
 	if section.XRefStm != nil {
 		hybridOff := *section.XRefStm
 		if seen[hybridOff] || len(seen) >= d.Options.Limits.MaxXRefSections {
@@ -107,6 +137,12 @@ func (d *Document) readXRefChain(offset int64, seen map[int64]bool) error {
 	return nil
 }
 
+// mergeEntries folds one section into the effective cross-reference.
+//
+// First definition wins, and since sections arrive newest first, that means
+// the newest revision of an object is the one kept. Within a single section a
+// repeated object number is an error rather than a precedence question: one
+// section defining the same object twice is damage, not history.
 func (d *Document) mergeEntries(section model.XRefSection) error {
 	within := make(map[uint32]bool)
 	for _, r := range section.Ranges {
@@ -126,6 +162,12 @@ func (d *Document) mergeEntries(section model.XRefSection) error {
 	return nil
 }
 
+// reserveXRefRange charges a subsection and its records against the object
+// limit before they are read.
+//
+// The count is taken from the file, so it is checked before anything is
+// allocated: a subsection header claiming billions of entries must be refused
+// on the strength of the claim alone.
 func (d *Document) reserveXRefRange(count uint64) error {
 	limit := d.Options.Limits.MaxObjects
 	if d.xrefRanges >= limit || count > uint64(limit-d.xrefRecords) {
@@ -136,6 +178,8 @@ func (d *Document) reserveXRefRange(count uint64) error {
 	return nil
 }
 
+// readXRefSection reads whichever of the two cross-reference forms is at
+// offset, distinguishing them by looking for the xref keyword.
 func (d *Document) readXRefSection(offset int64) (model.XRefSection, error) {
 	if offset < 0 || offset >= int64(len(d.data)) {
 		return model.XRefSection{}, errors.New("xref offset outside file")
@@ -147,6 +191,11 @@ func (d *Document) readXRefSection(offset int64) (model.XRefSection, error) {
 	return d.readXRefStream(pos)
 }
 
+// xrefLinks validates the trailer's /Prev and /XRefStm offsets.
+//
+// Both are checked to be inside the file here, before anything follows them,
+// and the validated copies live on the section. The values as written stay in
+// the trailer, so nothing about the file is lost by validating.
 func (d *Document) xrefLinks(section *model.XRefSection) error {
 	dict, ok := section.Trailer.Value.(model.Dictionary)
 	if !ok {
@@ -172,6 +221,12 @@ func (d *Document) xrefLinks(section *model.XRefSection) error {
 	return nil
 }
 
+// readXRefTable reads the classic textual form: the xref keyword, then one or
+// more subsections, then the trailer dictionary.
+//
+// Each subsection begins with "first count" and is followed by count fixed
+// twenty-byte entries of "offset generation flag", where the flag is n for an
+// object in use or f for a free one.
 func (d *Document) readXRefTable(start int) (model.XRefSection, error) {
 	section := model.XRefSection{Form: model.XRefTable, Offset: int64(start)}
 	pos := start + 4
@@ -201,6 +256,9 @@ func (d *Document) readXRefTable(start int) (model.XRefSection, error) {
 		if err != nil {
 			return section, err
 		}
+		// The last term is the cheap reality check: every entry needs at
+		// least five bytes, so a count larger than the remaining input
+		// cannot be honest and is refused before any allocation.
 		if count > uint64(d.Options.Limits.MaxObjects-total) || first+count > 1<<32 || count > uint64(len(d.data)-pos)/5 {
 			return section, errors.New("xref subsection exceeds input or object limit")
 		}
@@ -241,6 +299,10 @@ func (d *Document) readXRefTable(start int) (model.XRefSection, error) {
 	}
 }
 
+// directInt reads an integer entry without resolving references.
+//
+// A cross-reference stream's own dictionary must be self-contained: resolving
+// a reference from it would need the very cross-reference being built.
 func directInt(dict model.Dictionary, key model.Name) (int64, error) {
 	o, err := dict.Get(key)
 	if err != nil {
@@ -249,6 +311,17 @@ func directInt(dict model.Dictionary, key model.Name) (int64, error) {
 	return model.Int(o)
 }
 
+// readXRefStream reads the modern form, where the cross-reference is an
+// ordinary compressed stream object rather than text.
+//
+// The layout is described by the stream's own dictionary: /W gives the byte
+// width of each of the three fields in a record, and /Index gives the object
+// number ranges covered, defaulting to all of them. A field width of zero
+// means the field is omitted and takes its default, which is why the type
+// field defaults to 1, in-use, rather than to zero.
+//
+// This form is also what makes object streams usable, since only a type 2
+// entry can point into one.
 func (d *Document) readXRefStream(start int) (model.XRefSection, error) {
 	section := model.XRefSection{Form: model.XRefStream, Offset: int64(start)}
 	obj, err := d.parseIndirect(start)
@@ -328,6 +401,8 @@ func (d *Document) readXRefStream(start int) (model.XRefSection, error) {
 		r := model.XRefRange{First: uint32(first), Count: uint32(count)}
 		for j := int64(0); j < count; j++ {
 			begin := pos
+			// Defaults for omitted fields: type 1 (in use), and zero for
+			// the other two.
 			fields := [3]uint64{1, 0, 0}
 			for k, width := range widths {
 				if width == 0 {
@@ -358,6 +433,9 @@ func (d *Document) readXRefStream(start int) (model.XRefSection, error) {
 				}
 				record.Entry = model.CompressedEntry{StreamNumber: uint32(fields[1]), Index: uint32(fields[2])}
 			default:
+				// The specification requires unknown entry types to be
+				// ignored rather than rejected, so the type is kept and
+				// the finding is reported as a diagnostic.
 				record.Entry = model.UnknownXRefEntry{Type: fields[0]}
 				d.Structure.Diagnostics = append(d.Structure.Diagnostics, model.Diagnostic{Severity: model.SeverityWarning, Code: "unknown-xref-entry", Message: fmt.Sprintf("unsupported xref entry type %d", fields[0]), Span: record.Span})
 			}
@@ -366,6 +444,9 @@ func (d *Document) readXRefStream(start int) (model.XRefSection, error) {
 		total += int(count)
 		section.Ranges = append(section.Ranges, r)
 	}
+	// Every decoded byte must be accounted for by /Index and /W. Leftovers
+	// mean the description and the data disagree, and trusting either one
+	// would be a guess.
 	if pos != len(data) {
 		return section, errors.New("extra bytes in xref stream")
 	}

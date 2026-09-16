@@ -15,12 +15,25 @@ import (
 
 const maxCMapEntries = 65536
 
+// decodedCode is one character code after decoding: the raw bytes it occupied,
+// the text it produced, and whether that text came from a real mapping rather
+// than the replacement character.
 type decodedCode struct {
 	bytes    []byte
 	unicode  string
 	complete bool
 }
 
+// parseToUnicode parses a /ToUnicode CMap stream.
+//
+// A CMap is written in a PostScript-like syntax, but only a small part of it
+// is relevant here: begincodespacerange declares how wide codes are,
+// beginbfchar maps single codes, and beginbfrange maps runs of them, either to
+// a run of destinations or to an explicit array.
+//
+// It is parsed with the ordinary token scanner rather than being interpreted,
+// which works because these constructs are positional: a fixed pattern of
+// operands followed by a keyword.
 func parseToUnicode(data []byte) (*CMap, error) {
 	tokens, err := syntax.Lex(data, 1, 0)
 	if err != nil {
@@ -163,6 +176,7 @@ func parseToUnicode(data []byte) (*CMap, error) {
 	return cmap, nil
 }
 
+// add records one mapping, rejecting a code that no declared codespace covers.
 func (c *CMap) add(code []byte, value string) error {
 	if _, exists := c.Mappings[string(code)]; exists {
 		return fmt.Errorf("duplicate ToUnicode mapping for %X", code)
@@ -174,6 +188,8 @@ func (c *CMap) add(code []byte, value string) error {
 	return nil
 }
 
+// cmapHex decodes a <...> token into bytes. The digit count is significant: it
+// fixes the code width, so <0041> and <41> are different codes.
 func cmapHex(s string) ([]byte, error) {
 	if len(s) < 2 || s[0] != '<' || s[len(s)-1] != '>' {
 		return nil, fmt.Errorf("expected CMap hex string, got %q", s)
@@ -185,6 +201,11 @@ func cmapHex(s string) ([]byte, error) {
 	return hex.DecodeString(clean)
 }
 
+// cmapUnicode decodes a destination value, which is UTF-16BE.
+//
+// Surrogate pairs must be combined here: a character outside the basic
+// multilingual plane arrives as two code units, and treating them separately
+// would produce two invalid runes instead of one valid one.
 func cmapUnicode(b []byte) (string, error) {
 	if len(b) == 0 || len(b)%2 != 0 {
 		return "", fmt.Errorf("ToUnicode destination must be UTF-16BE")
@@ -207,6 +228,8 @@ func cmapUnicode(b []byte) (string, error) {
 	return string(utf16.Decode(units)), nil
 }
 
+// codeNumber packs code bytes into an integer, big-endian, so that codes of
+// the same width can be compared and used as map keys.
 func codeNumber(code []byte) uint32 {
 	var n uint32
 	for _, b := range code {
@@ -215,6 +238,8 @@ func codeNumber(code []byte) uint32 {
 	return n
 }
 
+// incrementCode adds n to a code, keeping its width. It is what walks a
+// bfrange from its low code to its high one.
 func incrementCode(b []byte, n uint64) []byte {
 	out := append([]byte(nil), b...)
 	for i := len(out) - 1; i >= 0; i-- {
@@ -225,11 +250,23 @@ func incrementCode(b []byte, n uint64) []byte {
 	return out
 }
 
+// decode maps character codes to text under a generous fixed limit, for
+// callers with no budget of their own to enforce.
 func (c *CMap) decode(raw []byte) (string, []decodedCode, bool) {
 	text, codes, complete, _ := c.decodeBounded(raw, 256<<20)
 	return text, codes, complete
 }
 
+// decodeBounded maps character codes to text, splitting raw into codes using
+// the declared codespaces.
+//
+// Codespaces are what make a variable-width encoding decodable: at each
+// position the first range whose width fits and whose bounds contain the bytes
+// decides how many bytes this code occupies.
+//
+// Two fallbacks keep a damaged CMap usable. When no codespace was declared,
+// widths are inferred from the mapping keys. When no range matches at all, one
+// byte is consumed, so decoding advances instead of stalling.
 func (c *CMap) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bool, error) {
 	spaces := c.CodeSpaces
 	if len(spaces) == 0 {
