@@ -1,0 +1,100 @@
+name: Go checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        go: ['1.25.x', stable]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - run: go run ./testdata/generate.go -check
+      - run: go test ./... -count=1 -shuffle=on -timeout=5m
+      - run: go vet ./...
+      - name: Race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./... -count=1 -timeout=5m
+      - name: 32-bit tests
+        if: runner.os == 'Linux'
+        env:
+          GOARCH: '386'
+          CGO_ENABLED: '0'
+        run: go test ./... -count=1 -timeout=5m
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.0
+
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: ./internal/syntax
+            target: FuzzLex
+          - package: ./internal/syntax
+            target: FuzzParseObject
+          - package: ./internal/document
+            target: FuzzDocument
+          - package: ./internal/document
+            target: FuzzDecodeFilters
+          - package: .
+            target: FuzzToUnicodeBounded
+          - package: .
+            target: FuzzBuildPDF
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=15s -parallel=2 -timeout=2m
