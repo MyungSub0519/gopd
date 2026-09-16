@@ -390,8 +390,11 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 			return e
 		}
 		return c.xobject(name, op, index)
-	case "BI", "ID", "EI":
-		return fmt.Errorf("inline image content is unsupported; original content source is retained")
+	case "ID", "EI":
+		// BI never reaches execute: stream intercepts it so that the
+		// payload can be skipped. Either half arriving on its own means
+		// the content is malformed.
+		return fmt.Errorf("inline image keyword %s outside a BI sequence", op.Operator)
 	case "BMC", "BDC", "EMC", "MP", "DP":
 		c.unsupported(op, "Marked-content properties and optional-content visibility are retained without evaluation")
 	case "BX", "EX":

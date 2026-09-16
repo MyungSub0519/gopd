@@ -26,6 +26,8 @@
 // Basic parsing also retains detailed analysis and is not a low-memory mode.
 // Always check returned errors, including when a partial result is non-nil.
 // Unsupported effects may instead be reported in detailed diagnostics.
+// Image bytes are located but never decoded, for inline and XObject images
+// alike; image codecs such as DCTDecode are outside the current implementation.
 // Coordinates use unrotated PDF user space, and content order is drawing order,
 // not reconstructed reading order. Rendering, OCR, and PDF editing are outside
 // the current implementation.

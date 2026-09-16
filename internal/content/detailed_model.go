@@ -169,8 +169,8 @@ type DetailedText struct {
 	State            GraphicsState
 }
 
-// DetailedImage is one placement of an image: an occurrence of a Do operator,
-// not the image data.
+// DetailedImage is one placement of an image — a Do operator naming an image
+// XObject, or a BI inline image — rather than the image data itself.
 //
 // Resource indexes into DetailedPDF.ImageResources, which is where the shared
 // data lives, so an image drawn ten times is ten DetailedImages and one
@@ -182,7 +182,11 @@ type DetailedImage struct {
 	State    GraphicsState
 }
 
-// ImageResource is an image XObject's metadata and the location of its bytes.
+// ImageResource is an image's metadata and the location of its bytes.
+//
+// It covers both image XObjects and inline images. An inline image has no
+// identity of its own, so ID is the zero ObjectID and Object spans the inline
+// dictionary rather than an indirect object.
 //
 // Width and Height are in pixels, not page units; the page-space size comes
 // from the placement's matrix. The payload is left encoded: this library does

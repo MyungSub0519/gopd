@@ -376,18 +376,13 @@ func asciiEncoding() map[byte]string {
 // /Differences array.
 //
 // Three sources are consulted: a single printable ASCII character stands for
-// itself, a short table covers the most common named glyphs, and the
+// itself, the embedded Adobe Glyph List covers every standard name, and the
 // algorithmic uniXXXX and uXXXX forms are decoded directly.
-//
-// The table is deliberately tiny next to the Adobe Glyph List, which has some
-// 4300 entries. Names outside it fail to map, and the font's /ToUnicode CMap —
-// which takes priority in decodeBounded — usually covers those cases anyway.
 func glyphUnicode(name string) (string, bool) {
 	if len(name) == 1 && name[0] >= 33 && name[0] <= 126 {
 		return name, true
 	}
-	known := map[string]string{"space": " ", "hyphen": "-", "period": ".", "comma": ",", "parenleft": "(", "parenright": ")", "colon": ":", "semicolon": ";", "slash": "/", "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9"}
-	if value, ok := known[name]; ok {
+	if value, ok := glyphlistMap()[name]; ok {
 		return value, true
 	}
 	if strings.HasPrefix(name, "uni") && len(name) == 7 {

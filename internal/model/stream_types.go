@@ -17,12 +17,13 @@ const (
 	// was found exactly where it predicted. This is the healthy case.
 	StreamFromLength
 
-	// StreamRecovered means /Length disagreed with the file and the
-	// boundary was recovered by locating the endstream keyword.
+	// StreamRecovered means the boundary was established by something other
+	// than a trusted length: computed from the data's own description, or
+	// found by locating the keyword that terminates it.
 	//
-	// Not yet produced: an object whose /Length does not match is currently
-	// rejected. The value exists so that adding recovery does not have to
-	// change this type or its callers.
+	// Inline images produce this, since they rarely carry a length. An
+	// ordinary stream object does not yet: one whose /Length disagrees with
+	// endstream is currently rejected rather than repaired.
 	StreamRecovered
 )
 

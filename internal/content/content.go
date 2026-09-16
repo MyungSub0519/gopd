@@ -387,14 +387,14 @@ type contentInterpreter struct {
 
 // stream executes one content stream.
 //
-// It lexes the whole stream up front and then walks the tokens, accumulating
-// operands until a keyword token arrives and executes as an operator.
+// It scans one token at a time, accumulating operands until a keyword token
+// arrives and executes as an operator.
 //
-// Lexing everything first is why inline images cannot be handled: the bytes
-// between an ID and its EI are raw image data rather than PDF syntax, and the
-// scanner fails on them before any operator is reached. Supporting BI would
-// mean scanning incrementally instead, so that the image dictionary can be
-// read and its payload skipped before scanning resumes.
+// Scanning incrementally rather than tokenising the whole stream first is what
+// makes inline images possible: the bytes between an ID and its EI are raw
+// image data, not PDF syntax, and where they end is only knowable from the
+// dictionary that precedes them. BI is therefore intercepted here, where the
+// scanner can be repositioned past the payload, rather than in execute.
 func (c *contentInterpreter) stream(stream model.Stream) error {
 	source, err := c.b.doc.DecodeStream(stream)
 	if err != nil {
@@ -404,15 +404,17 @@ func (c *contentInterpreter) stream(stream model.Stream) error {
 	if err != nil {
 		return err
 	}
-	tokens, err := syntax.Lex(data, source.ID, 0)
+	scanner, err := syntax.NewScanner(data, source.ID, 0, c.b.doc.Options.Limits)
 	if err != nil {
 		return fmt.Errorf("content at source %d: %w", source.ID, err)
 	}
-	for i := 0; i < len(tokens); {
-		token := tokens[i]
-		if token.Kind == model.TokenWhitespace || token.Kind == model.TokenComment || token.Kind == model.TokenEOF {
-			i++
-			continue
+	for {
+		token, err := scanner.NextNonTrivia()
+		if err != nil {
+			return fmt.Errorf("content at source %d: %w", source.ID, err)
+		}
+		if token.Kind == model.TokenEOF {
+			return nil
 		}
 		// A keyword token is an operator, except for the three that are
 		// object values and belong on the operand stack instead.
@@ -422,6 +424,12 @@ func (c *contentInterpreter) stream(stream model.Stream) error {
 			if c.b.operations > c.b.maxObjects {
 				return fmt.Errorf("content operation limit at %+v", token.Span)
 			}
+			if word == "BI" {
+				if err = c.inlineImage(scanner, token); err != nil {
+					return fmt.Errorf("inline image at source %d offset %d: %w", token.Span.Source, token.Span.Start, err)
+				}
+				continue
+			}
 			op := Operation{Operator: word, Operands: c.operands, Span: token.Span, FormPath: append([]FormCall(nil), c.formPath...)}
 			c.operands = nil
 			index := len(c.b.pdf.Pages[c.page].Operations)
@@ -429,29 +437,20 @@ func (c *contentInterpreter) stream(stream model.Stream) error {
 			if err = c.execute(op, index); err != nil {
 				return fmt.Errorf("operator %s at source %d offset %d: %w", word, token.Span.Source, token.Span.Start, err)
 			}
-			i++
 			continue
 		}
-		object, consumed, e := syntax.ParseObjectWithLimits(data[token.Span.Start:], source.ID, token.Span.Start, c.b.doc.Options.Limits)
-		if e != nil {
-			return e
-		}
-		if consumed <= 0 {
-			return fmt.Errorf("content parser made no progress at %+v", token.Span)
+		// An operand may be a whole array or dictionary, which the object
+		// parser understands and the scanner alone does not, so it is
+		// reparsed from the token's start and the scanner follows.
+		object, err := scanner.ParseObjectAt(int(token.Span.Start))
+		if err != nil {
+			return err
 		}
 		c.operands = append(c.operands, object)
 		if len(c.operands) > 65536 {
 			return fmt.Errorf("content operand limit at %+v", token.Span)
 		}
-		// The object parser consumed bytes, which may span several tokens,
-		// since an array or dictionary operand is many tokens; advance the
-		// token index past everything it took.
-		end := token.Span.Start + int64(consumed)
-		for i < len(tokens) && tokens[i].Span.Start < end {
-			i++
-		}
 	}
-	return nil
 }
 
 // source records where an element came from: the spans of the operator and
