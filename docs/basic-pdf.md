@@ -168,8 +168,6 @@ if len(detail.Pages) > 0 {
 | `doc.Diagnostics` | `doc.Details().Diagnostics`와 `Structure.Diagnostics` |
 | `len(doc.Texts)`로 전체 텍스트 수 계산 | 각 페이지의 길이를 합산하거나 `len(doc.Details().Texts)` 사용 |
 
-기존 기본 Page, Image, ParseDiagnostic 등의 공개 보조 타입은 유지하지만 새 PDF의 공개 필드에는 사용하지 않습니다. 상세 이미지·진단은 기본 타입과 필드 구성이 다릅니다. 상세 진단은 바이트 출처를 제공하며 기본 ParseDiagnostic의 `Page` 필드를 제공하지 않습니다. 페이지별 해석 상태는 상세 `Pages[page].Complete`로 확인합니다.
-
 ## 오류와 현재 처리 범위
 
 - 존재하지 않는 파일이나 구문 오류는 `error`로 반환합니다.
