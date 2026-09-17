@@ -41,20 +41,37 @@ The examples are application choices, not universal recommended capacities.
 | `MaxObjects` | 1,000,000 | Indirect objects, cumulative xref records/ranges, and existing semantic category limits |
 | `MaxXRefSections` | 256 | Xref table/stream sections including hybrid sections |
 | `MaxDecodedBytes` | 256 MiB | Retained decoded stream bytes across the Document, including nested dependencies |
-| `MaxValues` | 1,048,576 | Cumulative direct values/containers across document object parsing; separately, content operand values per BuildPDF |
+| `MaxValues` | 1,048,576 | Cumulative direct values/containers across document object parsing; separately, content operands, expanded numeric resources and retained style components per BuildPDF |
 | `MaxContentBytes` | 256 MiB | Decoded content bytes examined per BuildPDF, charging each execution of reused streams |
-| `MaxSemanticObjects` | `MaxObjects` | Page-node visits, content-stream visits, operators and annotation occurrences per BuildPDF |
+| `MaxSemanticObjects` | `MaxObjects` | Page-node visits, content-stream visits, operators, annotations, resource dictionary entries examined and emitted diagnostics per BuildPDF |
 | `MaxRegionWork` | 16,777,216 | Region entries searched, replaced, moved or copied while maintaining the file partition |
 
 Dictionary keys are not counted as separate `MaxValues` values. Each dictionary
 entry's value is counted. Cached indirect-object loads do not charge values
 again; unsuccessful parsing attempts do charge work already completed.
 
+The BuildPDF value budget charges numeric arrays expanded from resources on each
+use. It also charges dash entries and stroke/fill color components for each
+retained text, graphic or image occurrence, even when detailed results share
+slices. This bounds the style copies made by the basic-result conversion.
+Resource dictionary work is charged before validation or lookup on each use,
+including cached XObjects. The count bounds repeated scans, not every comparison
+made by a lookup.
+
 CMap mapping keys and UTF-8 destinations share a separate semantic byte budget
-with emitted Unicode text. That budget is the smaller of `MaxDecodedBytes` and
-256 MiB, per BuildPDF. A reused CMap is charged once. Entry limits and byte limits
+with emitted Unicode text and diagnostic code/message bytes. That budget is the
+smaller of `MaxDecodedBytes` and 256 MiB, per BuildPDF. A reused CMap is charged
+once. Entry limits and byte limits
 are checked during expansion, before each mapping is retained. This does not
 include Go map overhead or the original decoded CMap source.
+
+These accounting scopes are stricter than counting only operands and operators.
+A document accepted under an earlier version's limits may now return `ErrLimit`;
+the option names, public types and result format are unchanged. Diagnostics also
+consume resources: exhausting their count or byte budget returns `ErrLimit`
+instead of silently dropping warnings or returning an apparently complete result.
+An exhausted decoded-stream byte budget still permits streams whose decoded
+output is empty.
 
 Use `errors.Is(err, gopd.ErrLimit)` to distinguish resource exhaustion from
 ordinary malformed or unsupported input. Invalid option values are configuration
@@ -74,6 +91,10 @@ Follow each input source's derivation to reach the original file.
 
 - Null-valued optional dictionary entries behave as absent entries after indirect
   reference resolution. Raw dictionary occurrences remain available for inspection.
+  Direct-only xref bootstrap fields and predictor parameters apply the same rule
+  to direct nulls without resolving references. Duplicate entries remain errors.
+- `ResolveObject` accepts reference chains with exactly `MaxDepth` hops to a
+  direct value; the next hop exceeds the limit. Cycles remain errors.
 - Rectangles normalize their two opposite corners; original operands remain in
   the source model.
 - Optional-content visibility on Form/Image XObjects is not evaluated. Content is

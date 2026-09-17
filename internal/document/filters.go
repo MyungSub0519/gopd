@@ -97,7 +97,7 @@ func (d *Document) DecodeStream(stream pdfmodel.Stream) (pdfmodel.Source, error)
 		names[i] = name
 	}
 	remaining := d.Options.Limits.MaxDecodedBytes - d.decodedBytes
-	if remaining <= 0 {
+	if remaining < 0 {
 		return pdfmodel.Source{}, fmt.Errorf("decoded stream byte budget exhausted: %w", pdfmodel.ErrLimit)
 	}
 	data, err := d.Bytes(*stream.Encoded)
@@ -240,7 +240,7 @@ func readDecodeLimit(r io.Reader, limit int64) ([]byte, error) {
 }
 
 func predictorInt(dict pdfmodel.Dictionary, key pdfmodel.Name, fallback int64) (int64, error) {
-	o, err := dict.Get(key)
+	o, err := optionalDirect(dict, key)
 	if errors.Is(err, pdfmodel.ErrMissingKey) {
 		return fallback, nil
 	}
@@ -285,7 +285,8 @@ func applyPredictor(data []byte, params *pdfmodel.Object, limit int64) ([]byte, 
 	}
 	samples := colors * columns
 	rowSize := (samples*bits + 7) / 8
-	if rowSize > limit || uint64(rowSize) >= uint64(^uint(0)>>1) {
+	// Empty predictor input allocates no rows and consumes no decoded bytes.
+	if (len(data) > 0 && rowSize > limit) || uint64(rowSize) >= uint64(^uint(0)>>1) {
 		return nil, fmt.Errorf("predictor row exceeds byte limit: %w", pdfmodel.ErrLimit)
 	}
 	rowBytes := int(rowSize)

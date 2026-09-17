@@ -17,7 +17,15 @@ type contentState struct {
 }
 
 func initialContentState() contentState {
-	return contentState{graphics: GraphicsState{CTM: IdentityMatrix(), LineWidth: 1, MiterLimit: 10, Stroke: Color{Space: "DeviceGray", Components: []float64{0}}, Fill: Color{Space: "DeviceGray", Components: []float64{0}}, StrokeAlpha: 1, FillAlpha: 1, BlendMode: "Normal", Complete: true}, text: textState{font: -1, hscale: 1}}
+	return contentState{
+		graphics: GraphicsState{
+			CTM: IdentityMatrix(), LineWidth: 1, MiterLimit: 10,
+			Stroke:      Color{Space: "DeviceGray", Components: []float64{0}},
+			Fill:        Color{Space: "DeviceGray", Components: []float64{0}},
+			StrokeAlpha: 1, FillAlpha: 1, BlendMode: "Normal", Complete: true,
+		},
+		text: textState{font: -1, hscale: 1},
+	}
 }
 
 func operationNumbers(op Operation, n int) ([]float64, error) {
@@ -101,27 +109,7 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		if e != nil {
 			return e
 		}
-		switch op.Operator {
-		case "w":
-			if n[0] < 0 {
-				return fmt.Errorf("negative line width")
-			}
-			g.LineWidth = n[0]
-		case "J", "j":
-			if n[0] != math.Trunc(n[0]) || n[0] < 0 || n[0] > 2 {
-				return fmt.Errorf("invalid line cap/join")
-			}
-			if op.Operator == "J" {
-				g.LineCap = int(n[0])
-			} else {
-				g.LineJoin = int(n[0])
-			}
-		case "M":
-			if n[0] < 1 {
-				return fmt.Errorf("invalid miter limit")
-			}
-			g.MiterLimit = n[0]
-		}
+		return c.setLineParameter(op.Operator, n[0])
 	case "d":
 		if len(op.Operands) != 2 {
 			return fmt.Errorf("d requires two operands")
@@ -130,22 +118,11 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		if e != nil {
 			return e
 		}
-		total := float64(0)
-		for _, v := range dash {
-			if v < 0 {
-				return fmt.Errorf("negative dash length")
-			}
-			total += v
-		}
-		if len(dash) > 0 && total == 0 {
-			return fmt.Errorf("all dash lengths zero")
-		}
 		phase, e := Number(op.Operands[1])
 		if e != nil {
 			return e
 		}
-		g.Dash = dash
-		g.DashPhase = phase
+		return c.setDash(dash, phase)
 	case "ri":
 		name, e := operationName(op)
 		if e != nil {
@@ -193,7 +170,9 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		case "DeviceCMYK":
 			color.Components = []float64{0, 0, 0, 1}
 		default:
-			c.unsupported(op, "Non-device color spaces are retained without color conversion")
+			if err := c.unsupported(op, "Non-device color spaces are retained without color conversion"); err != nil {
+				return err
+			}
 		}
 		if op.Operator == "CS" {
 			g.Stroke = color
@@ -209,7 +188,9 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		for i, operand := range op.Operands {
 			if name, ok := operand.Value.(Name); ok && i == len(op.Operands)-1 {
 				color.Pattern = name
-				c.unsupported(op, "Pattern colors are retained without pattern execution")
+				if err := c.unsupported(op, "Pattern colors are retained without pattern execution"); err != nil {
+					return err
+				}
 			} else {
 				n, e := Number(operand)
 				if e != nil {
@@ -300,7 +281,7 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 			}
 			t.renderMode = int(n[0])
 			if t.renderMode >= 4 {
-				c.unsupported(op, "Text clipping requires glyph outlines and is not applied")
+				return c.unsupported(op, "Text clipping requires glyph outlines and is not applied")
 			}
 		}
 	case "Tm":
@@ -345,13 +326,13 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 	case "BI", "ID", "EI":
 		return fmt.Errorf("inline image content is unsupported; original content source is retained")
 	case "BMC", "BDC", "EMC", "MP", "DP":
-		c.unsupported(op, "Marked-content properties and optional-content visibility are retained without evaluation")
+		return c.unsupported(op, "Marked-content properties and optional-content visibility are retained without evaluation")
 	case "BX", "EX":
 		if e := noOperands(op); e != nil {
 			return e
 		}
 	default:
-		c.unsupported(op, fmt.Sprintf("Operator %s is retained but its effect is unsupported", op.Operator))
+		return c.unsupported(op, fmt.Sprintf("Operator %s is retained but its effect is unsupported", op.Operator))
 	}
 	return nil
 }
@@ -434,6 +415,9 @@ func (c *contentInterpreter) paint(op Operation, index int) error {
 		c.path = append(c.path, DetailedPathSegment{Operator: "h", Points: []Point{c.subpathStart()}, Span: op.Span})
 	}
 	if op.Operator != "n" && len(c.path) > 0 {
+		if err := c.b.chargeStyle(c.state.graphics, op.Span); err != nil {
+			return err
+		}
 		source := c.source(op, index)
 		source.Operations = append(append([]int(nil), c.pathOperations...), index)
 		for _, segment := range c.path {
@@ -453,209 +437,5 @@ func (c *contentInterpreter) paint(op Operation, index int) error {
 	c.path = nil
 	c.pathOperations = nil
 	c.pendingClip = false
-	return nil
-}
-
-func (c *contentInterpreter) moveText(x, y float64) {
-	c.lineMatrix = c.lineMatrix.Mul(translate(x, y))
-	c.textMatrix = c.lineMatrix
-	c.positionComplete = true
-}
-func (c *contentInterpreter) showText(op Operation, index int) error {
-	if !c.inText {
-		return fmt.Errorf("text show outside BT/ET")
-	}
-	t := &c.state.text
-	var elements []Object
-	switch op.Operator {
-	case "Tj", "'":
-		if len(op.Operands) != 1 {
-			return fmt.Errorf("text show requires one string")
-		}
-		elements = op.Operands
-		if op.Operator == "'" {
-			c.moveText(0, -t.leading)
-		}
-	case "\"":
-		if len(op.Operands) != 3 {
-			return fmt.Errorf("double quote requires word spacing, character spacing, string")
-		}
-		var e error
-		t.wordSpace, e = Number(op.Operands[0])
-		if e != nil {
-			return e
-		}
-		t.charSpace, e = Number(op.Operands[1])
-		if e != nil {
-			return e
-		}
-		c.moveText(0, -t.leading)
-		elements = op.Operands[2:]
-	case "TJ":
-		if len(op.Operands) != 1 {
-			return fmt.Errorf("TJ requires one array")
-		}
-		array, ok := op.Operands[0].Value.(Array)
-		if !ok {
-			return fmt.Errorf("TJ operand is not array")
-		}
-		elements = array.Items
-	}
-	text := DetailedText{Source: c.source(op, index), Font: t.font, FontSize: t.size, Matrix: c.state.graphics.CTM.Mul(c.textMatrix), RenderingMode: t.renderMode, State: c.state.graphics, DecodeComplete: true, PositionComplete: c.positionComplete}
-	if !finiteMatrix(text.Matrix) {
-		return fmt.Errorf("text transformation overflow")
-	}
-	// A zero Font decodes every code as unsupported with unknown widths, so a
-	// show operator before Tf still yields a Text element flagged incomplete.
-	font := &Font{}
-	if t.font >= 0 {
-		font = &c.b.pdf.Fonts[t.font]
-	}
-	var result strings.Builder
-	for _, element := range elements {
-		raw, ok := element.Value.(PDFString)
-		if !ok {
-			if op.Operator != "TJ" {
-				return fmt.Errorf("text show operand is not a string")
-			}
-			number, e := Number(element)
-			if e != nil {
-				return e
-			}
-			c.textMatrix = c.textMatrix.Mul(translate(-number/1000*t.size*t.hscale, 0))
-			if !finiteMatrix(c.textMatrix) {
-				return fmt.Errorf("text displacement overflow")
-			}
-			continue
-		}
-		if len(raw.Bytes) > c.b.maxObjects-c.b.glyphCodes {
-			return fmt.Errorf("%w: text character-code byte limit exceeded", ErrLimit)
-		}
-		c.b.glyphCodes += len(raw.Bytes)
-		text.RawCodes = append(text.RawCodes, raw.Bytes...)
-		decoded, codes, complete, decodeError := font.decodeBounded(raw.Bytes, c.b.maxUnicodeBytes-c.b.unicodeBytes)
-		if decodeError != nil {
-			return decodeError
-		}
-		c.b.unicodeBytes += int64(len(decoded))
-		result.WriteString(decoded)
-		text.DecodeComplete = text.DecodeComplete && complete
-		for _, code := range codes {
-			width, widthKnown := font.widths[codeNumber(code.bytes)]
-			if !widthKnown {
-				width = font.defaultWidth
-				widthKnown = font.defaultWidthKnown
-			}
-			if !font.PositioningSupported {
-				widthKnown = false
-			}
-			advance := (width/1000*t.size + t.charSpace) * t.hscale
-			if len(code.bytes) == 1 && code.bytes[0] == 32 {
-				advance += t.wordSpace * t.hscale
-			}
-			matrix := c.state.graphics.CTM.Mul(c.textMatrix)
-			origin := matrix.Transform(Point{X: 0, Y: t.rise})
-			end := matrix.Transform(Point{X: advance, Y: t.rise})
-			if !finitePoint(origin) || !finitePoint(end) {
-				return fmt.Errorf("text glyph coordinate overflow")
-			}
-			text.Glyphs = append(text.Glyphs, Glyph{Code: code.bytes, Unicode: code.unicode, Origin: origin, Advance: Point{X: end.X - origin.X, Y: end.Y - origin.Y}, DecodeComplete: code.complete, WidthKnown: widthKnown})
-			text.PositionComplete = text.PositionComplete && widthKnown
-			c.positionComplete = c.positionComplete && widthKnown
-			c.textMatrix = c.textMatrix.Mul(translate(advance, 0))
-			if !finiteMatrix(c.textMatrix) {
-				return fmt.Errorf("text advance overflow")
-			}
-		}
-	}
-	text.Unicode = result.String()
-	if !text.DecodeComplete {
-		c.b.diag("incomplete-text-decoding", "Some character codes have no supported Unicode mapping", op.Span)
-	}
-	if !text.PositionComplete {
-		c.b.diag("incomplete-text-positioning", "Some glyph widths or writing directions are unsupported", op.Span)
-	}
-	c.item(ElementText, len(c.b.pdf.Texts))
-	c.b.pdf.Texts = append(c.b.pdf.Texts, text)
-	return nil
-}
-
-func (c *contentInterpreter) extGState(name Name, op Operation) error {
-	object, err := c.resource("ExtGState", name)
-	if err != nil {
-		return err
-	}
-	object, err = c.b.doc.ResolveObject(object)
-	if err != nil {
-		return err
-	}
-	dict, err := semDictionary(object)
-	if err != nil {
-		return err
-	}
-	for _, entry := range dict.Entries {
-		value, err := c.b.doc.ResolveObject(entry.Value)
-		if err != nil {
-			return err
-		}
-		switch entry.Key {
-		case "Type":
-		case "LW", "LC", "LJ", "ML":
-			mapped := map[Name]string{"LW": "w", "LC": "J", "LJ": "j", "ML": "M"}[entry.Key]
-			if err = c.execute(Operation{Operator: mapped, Operands: []Object{value}, Span: op.Span}, -1); err != nil {
-				return err
-			}
-		case "CA", "ca":
-			n, e := Number(value)
-			if e != nil || n < 0 || n > 1 {
-				return fmt.Errorf("invalid alpha value")
-			}
-			if entry.Key == "CA" {
-				c.state.graphics.StrokeAlpha = n
-			} else {
-				c.state.graphics.FillAlpha = n
-			}
-		case "BM":
-			mode, ok := value.Value.(Name)
-			if !ok {
-				c.unsupported(op, "Blend mode arrays are retained without choosing a renderer-supported mode")
-			} else {
-				c.state.graphics.BlendMode = mode
-			}
-		case "D":
-			array, ok := value.Value.(Array)
-			if !ok {
-				return fmt.Errorf("invalid ExtGState D")
-			}
-			if err = c.execute(Operation{Operator: "d", Operands: array.Items, Span: op.Span}, -1); err != nil {
-				return err
-			}
-		case "RI":
-			if err = c.execute(Operation{Operator: "ri", Operands: []Object{value}, Span: op.Span}, -1); err != nil {
-				return err
-			}
-		case "Font":
-			array, ok := value.Value.(Array)
-			if !ok || len(array.Items) != 2 {
-				return fmt.Errorf("invalid ExtGState Font")
-			}
-			font, e := c.b.font(array.Items[0])
-			if e != nil {
-				return e
-			}
-			size, e := Number(array.Items[1])
-			if e != nil {
-				return e
-			}
-			c.state.text.font = font
-			c.state.text.size = size
-		case "SMask":
-			if mode, ok := value.Value.(Name); !ok || mode != "None" {
-				c.unsupported(op, "Soft masks are retained without evaluating their transparency")
-			}
-		default:
-			c.unsupported(op, fmt.Sprintf("ExtGState /%s is retained but its rendering effect is unsupported", entry.Key))
-		}
-	}
 	return nil
 }

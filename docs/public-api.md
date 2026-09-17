@@ -210,7 +210,11 @@ basic.go              기본 결과·FontInfo·Details()·기본 결과 변환
 detailed_model.go     상세 반환 타입
 style_types.go        스타일·그래픽 상태
 compat_types.go       기존 호환성 타입
-content*.go           페이지·Form·그리기 명령 해석
+semantic*.go          콘텐츠 해석 세션·공통 조회·진단·자원 예산
+pages.go              페이지 트리·상속·콘텐츠 연결·주석
+content*.go           콘텐츠 구문·명령 실행·리소스·Form/Image·ExtGState
+graphics_state.go     공통 선·점선 상태 검증과 설정
+text.go               텍스트 실행·글리프·위치 계산
 fonts.go, cmap.go     글꼴·CMap 타입과 해석
 internal/document/   파일·바이트 범위·객체·xref·스트림 읽기
 internal/syntax/     토큰·객체 구문 해석

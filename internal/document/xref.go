@@ -162,7 +162,7 @@ func (d *Document) xrefLinks(section *pdfmodel.XRefSection) error {
 		key pdfmodel.Name
 		out **int64
 	}{{"Prev", &section.Prev}, {"XRefStm", &section.XRefStm}} {
-		obj, err := dict.Get(link.key)
+		obj, err := optionalDirect(dict, link.key)
 		if errors.Is(err, pdfmodel.ErrMissingKey) {
 			continue
 		}
@@ -313,7 +313,7 @@ func (d *Document) readXRefStream(start int) (pdfmodel.XRefSection, error) {
 		return section, errors.New("invalid xref /Size")
 	}
 	indices := []int64{0, size}
-	if iobj, e := stream.Dictionary.Get("Index"); e == nil {
+	if iobj, e := optionalDirect(stream.Dictionary, "Index"); e == nil {
 		arr, ok := iobj.Value.(pdfmodel.Array)
 		if !ok || len(arr.Items)%2 != 0 {
 			return section, errors.New("invalid xref /Index")

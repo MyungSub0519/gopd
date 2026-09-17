@@ -80,16 +80,20 @@ func (d *Document) Resolve(ref pdfmodel.Reference) (pdfmodel.Object, error) {
 }
 
 // ResolveObject follows indirect reference chains, rejecting cycles and depth
-// limit violations. A direct object is returned unchanged.
+// limit violations. MaxDepth counts reference hops; a terminal direct object
+// is returned unchanged even when exactly MaxDepth references were followed.
 func (d *Document) ResolveObject(object pdfmodel.Object) (pdfmodel.Object, error) {
 	seen := make(map[pdfmodel.ObjectID]bool)
-	for depth := 0; depth < d.Options.Limits.MaxDepth; depth++ {
+	for depth := 0; ; depth++ {
 		ref, ok := object.Value.(pdfmodel.Reference)
 		if !ok {
 			return object, nil
 		}
 		if seen[ref.ID] {
 			return pdfmodel.Object{}, fmt.Errorf("cyclic indirect reference %v", ref.ID)
+		}
+		if depth >= d.Options.Limits.MaxDepth {
+			return pdfmodel.Object{}, fmt.Errorf("indirect reference depth limit exceeded: %w", pdfmodel.ErrLimit)
 		}
 		seen[ref.ID] = true
 		var err error
@@ -98,7 +102,20 @@ func (d *Document) ResolveObject(object pdfmodel.Object) (pdfmodel.Object, error
 			return pdfmodel.Object{}, err
 		}
 	}
-	return pdfmodel.Object{}, fmt.Errorf("indirect reference depth limit exceeded: %w", pdfmodel.ErrLimit)
+}
+
+// optionalDirect applies Adobe PDF Reference 1.6, section 3.2.6: a null
+// dictionary value is equivalent to an absent entry. Raw Dictionary.Get still
+// preserves null and rejects duplicates. This helper never resolves references,
+// so it is usable during xref bootstrap and by pure filter decoders.
+func optionalDirect(dict pdfmodel.Dictionary, key pdfmodel.Name) (pdfmodel.Object, error) {
+	object, err := dict.Get(key)
+	if err == nil {
+		if _, null := object.Value.(pdfmodel.Null); null {
+			return pdfmodel.Object{}, fmt.Errorf("/%s: %w", key, pdfmodel.ErrMissingKey)
+		}
+	}
+	return object, err
 }
 
 func (d *Document) dictInt(dict pdfmodel.Dictionary, key pdfmodel.Name) (int64, error) {

@@ -57,11 +57,13 @@ type Limits struct {
 	MaxXRefSections int
 	MaxDecodedBytes int64 // 분석 세션 전체 디코딩 출력 예산
 	// MaxValues bounds cumulative direct syntax values in a Document, and
-	// separately the content operands interpreted by one BuildPDF call.
+	// separately content operands, expanded numeric resources and retained style
+	// components in one BuildPDF call.
 	MaxValues int
 	// MaxContentBytes counts decoded content bytes on every execution, including reuse.
 	MaxContentBytes int64
-	// MaxSemanticObjects counts page visits, stream visits, operators and annotations.
+	// MaxSemanticObjects counts page and stream visits, operators, annotations,
+	// resource dictionary entries examined and diagnostics in one BuildPDF call.
 	MaxSemanticObjects int
 	// MaxRegionWork bounds entries examined or moved while maintaining file regions.
 	MaxRegionWork int64

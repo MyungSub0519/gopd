@@ -56,7 +56,9 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 	font.composite = font.Subtype == "Type0"
 	font.PositioningSupported = font.Subtype == "Type1" || font.Subtype == "MMType1" || font.Subtype == "TrueType"
 	if font.Subtype == "Type3" {
-		b.diag("unsupported-type3-font", "Type3 glyph content and font-matrix positioning are retained without execution", object.Span)
+		if err := b.diag("unsupported-type3-font", "Type3 glyph content and font-matrix positioning are retained without execution", object.Span); err != nil {
+			return -1, err
+		}
 	}
 	metricDict := dict
 	if font.composite {
@@ -83,7 +85,9 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 		font.vertical = ok && strings.HasSuffix(string(encoding), "-V")
 		font.PositioningSupported = encoding == "Identity-H"
 		if !ok || (encoding != "Identity-H" && encoding != "Identity-V") {
-			b.diag("unsupported-font-encoding", "Composite font encoding is not Identity-H/Identity-V; code widths and positioning may be incomplete", font.Encoding.Span)
+			if err := b.diag("unsupported-font-encoding", "Composite font encoding is not Identity-H/Identity-V; code widths and positioning may be incomplete", font.Encoding.Span); err != nil {
+				return -1, err
+			}
 		}
 		font.defaultWidth = 1000
 		font.defaultWidthKnown = encoding == "Identity-H"
@@ -176,7 +180,9 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 				if errors.Is(e, ErrLimit) {
 					return -1, e
 				}
-				b.diag("unsupported-tounicode", e.Error(), value.Span)
+				if err := b.diag("unsupported-tounicode", e.Error(), value.Span); err != nil {
+					return -1, err
+				}
 			} else {
 				data, e := b.doc.Bytes(Span{Source: source.ID, Start: 0, End: source.Size})
 				if e != nil {
@@ -187,7 +193,9 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 					if errors.Is(e, ErrLimit) {
 						return -1, fmt.Errorf("ToUnicode at %+v: %w", value.Span, e)
 					}
-					b.diag("unsupported-tounicode", e.Error(), value.Span)
+					if err := b.diag("unsupported-tounicode", e.Error(), value.Span); err != nil {
+						return -1, err
+					}
 				}
 				if font.ToUnicode != nil {
 					b.cmapEntries += len(font.ToUnicode.Mappings)
@@ -326,10 +334,12 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 			font.simpleEncoding[code] = "•"
 		}
 	}
-	// Standard 14 Latin fonts have a defined StandardEncoding when omitted.
+	// The 12 Latin members of the standard 14 use StandardEncoding when omitted.
 	if name == "" && encoding.Value == nil && font.Subtype == "Type1" {
-		base := string(font.BaseFont)
-		if strings.HasPrefix(base, "Helvetica") || strings.HasPrefix(base, "Times-") || strings.HasPrefix(base, "Courier") {
+		switch font.BaseFont {
+		case "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+			"Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+			"Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique":
 			font.simpleEncoding = asciiEncoding()
 		}
 	}
@@ -339,6 +349,10 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	}
 	code := -1
 	for _, item := range differences.Items {
+		item, err := b.doc.ResolveObject(item)
+		if err != nil {
+			return err
+		}
 		if _, ok := item.Value.(Integer); ok {
 			n, e := Int(item)
 			if e != nil || n < 0 || n > 255 {

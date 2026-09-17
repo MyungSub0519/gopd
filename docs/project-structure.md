@@ -21,8 +21,14 @@ gopd/
 ├── detailed_model.go       상세 페이지·텍스트·그래픽·이미지 모델
 ├── style_types.go          색상·선·채우기·클리핑 상태
 ├── compat_types.go         기존 API 호환 타입
-├── content.go              페이지·Form 탐색과 콘텐츠 처리
-├── content_state.go        그리기·텍스트 명령과 상태 변화
+├── semantic.go             콘텐츠 해석 세션·의미 기반 값 조회·진단
+├── semantic_budget.go      해석 작업량·값·출력 스타일 예산
+├── pages.go                페이지 트리·상속·콘텐츠 연결·주석
+├── content.go              콘텐츠 구문 분석·명령 실행 연결·출처
+├── content_state.go        명령 분기·경로·클리핑·그리기
+├── content_resources.go    리소스 조회·Form/Image·ExtGState
+├── graphics_state.go       공통 선·점선 상태 검증과 설정
+├── text.go                 텍스트 실행·글리프·위치 계산
 ├── fonts.go                Font 타입과 글꼴 리소스 해석
 ├── cmap.go                 CMap·CodeSpace 타입과 문자 매핑
 ├── basic_test.go           기본 응답·페이지별 배열·JSON 테스트
@@ -36,6 +42,9 @@ gopd/
 │   │   ├── read.go            ReadOptions, 제한값, 파일·ReaderAt 입력
 │   │   ├── document.go        문서 상태·바이트 범위·참조 해석
 │   │   ├── objects.go         간접 객체·객체 스트림 로딩
+│   │   ├── object_stream.go   객체 스트림 헤더 색인·캐시
+│   │   ├── content_source.go  복수 콘텐츠 스트림 연결과 출처
+│   │   ├── budget.go          문서 구문 값·xref 작업량 예산
 │   │   ├── xref.go            객체 위치 색인·증분 갱신
 │   │   ├── filters.go         스트림 디코딩과 예측자
 │   │   ├── document_test.go   입력·바이트 범위·객체·xref·퍼즈 테스트
@@ -67,6 +76,7 @@ gopd/
 └── docs/
     ├── project-structure.md   이 문서: 폴더와 파일별 역할
     ├── public-api.md          외부에서 호출할 수 있는 API 목록
+    ├── resource-limits.md     자원 예산 계산 범위와 해석 정책
     ├── basic-pdf.md           기본 응답 사용법
     ├── json-structure.md      상세 결과의 JSON 구조
     ├── readme/                README용 로고 이미지
@@ -88,14 +98,18 @@ gopd/
 | [basic.go](../basic.go) | `PDF`, `Text`, `Graphic`, `PathSegment`, `FontInfo`, `Details`, `basicPDF` | 기본 반환 구조체와 상세 결과를 기본 결과로 바꾸는 기능입니다. 텍스트와 경로 그래픽을 페이지별 이중 배열에 담고, 기본 응답에 필요한 글꼴·스타일 정보만 옮깁니다. `Details()`는 저장해 둔 상세 결과를 반환합니다. |
 | [detailed_model.go](../detailed_model.go) | `DetailedPDF`, `DetailedPage`, `DetailedText`, `DetailedGraphic`, `DetailedImage` 등 | 해석 결과를 저장하는 상세 모델입니다. 페이지, 글리프, 이미지 리소스, 주석, 실행 명령, 원본 바이트 출처와 진단 정보를 표현합니다. 페이지의 `Items`는 텍스트·그래픽·이미지가 섞인 실행 순서를 보존합니다. |
 | [style_types.go](../style_types.go) | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath` | 색상, 선 두께, 점선, 투명도, 혼합 모드와 클리핑 정보를 정의합니다. 기본 응답용 스타일과 상세 해석 중 사용하는 그래픽 상태를 구분합니다. |
-| [content.go](../content.go) | `semanticBuilder`, `walkPages`, `contentInterpreter`, `stream`, `xobject` | 페이지 트리를 순회하고 상속된 리소스·페이지 정보를 처리합니다. 콘텐츠 스트림을 명령과 피연산자로 나누어 실행기로 전달하고, 이미지와 Form XObject(재사용하는 그리기 콘텐츠)를 처리합니다. 결과의 페이지·명령·바이트 출처 연결과 지원하지 않는 효과의 진단도 담당합니다. |
-| [content_state.go](../content_state.go) | `contentState`, `textState`, `execute`, `pathOperation`, `paint`, `showText` | 개별 PDF 명령을 실행하며 현재 좌표 변환, 색상, 선, 클리핑, 글꼴과 텍스트 위치를 갱신합니다. 경로 그리기 명령에서 그래픽을 만들고, 문자 표시 명령에서 텍스트·글리프·이동량을 만듭니다. |
+| [semantic.go](../semantic.go), [semantic_budget.go](../semantic_budget.go) | `semanticBuilder`, `get`, `diag`, `chargeSemanticWork`, `chargeValues` | 해석 세션의 캐시·출력·예산을 보관합니다. 의미 기반 사전 조회와 진단 생성, 반복 리소스 작업 및 출력 크기 제한을 담당합니다. |
+| [pages.go](../pages.go) | `walkPages`, `interpretPage`, `readAnnotations` | 페이지 트리와 상속된 속성을 읽습니다. 페이지 콘텐츠 연결·실행과 주석 해석은 별도 함수로 구분합니다. |
+| [content.go](../content.go) | `contentInterpreter`, `contentSource`, `interpretSource` | 콘텐츠 스트림을 명령과 피연산자로 나누어 실행기로 전달하며, 결과의 페이지·명령·바이트 출처를 연결합니다. |
+| [content_state.go](../content_state.go), [graphics_state.go](../graphics_state.go) | `contentState`, `textState`, `execute`, `pathOperation`, `paint`, `setLineParameter`, `setDash` | 명령 실행과 경로·클리핑·그래픽 출력을 담당합니다. 콘텐츠 명령과 ExtGState가 같은 선·점선 검증 함수를 사용하며, 리소스를 가짜 명령으로 다시 실행하지 않습니다. |
+| [content_resources.go](../content_resources.go) | `resource`, `xobject`, `extGState` | 리소스 조회, Form/Image XObject 실행, ExtGState의 참조 해석과 상태 적용을 담당합니다. 반복 딕셔너리 검사와 숫자 배열 확장 전에 예산을 확인합니다. |
+| [text.go](../text.go) | `moveText`, `showText` | 문자 표시에서 텍스트·글리프·이동량을 만들고 텍스트 위치를 갱신합니다. |
 | [fonts.go](../fonts.go) | `Font`, `font`, `cidWidths`, `simpleFontEncoding`, `decodeBounded` | 글꼴 리소스의 종류·이름·인코딩·문자 폭·ToUnicode 정보를 읽습니다. 콘텐츠에 들어 있는 문자 코드를 해석하고, 글리프 위치 계산에 필요한 폭 정보를 제공합니다. |
 | [cmap.go](../cmap.go) | `CodeSpace`, `CMap`, `parseToUnicode`, `decodeBounded` | ToUnicode CMap을 읽어 PDF 글꼴의 문자 코드와 Unicode 문자열을 연결합니다. 코드 길이와 매핑 범위를 처리하고 디코딩 결과의 완전성 및 출력 크기 제한을 관리합니다. |
 | [compat_types.go](../compat_types.go) | `Page`, `Image`, `ImageInfo`, `ParseDiagnostic` | 기존 API와의 호환성을 위해 남겨 둔 사용 중단 예정 타입입니다. 현재 기본 응답은 `basic.go`, 상세 응답은 `detailed_model.go`를 기준으로 봅니다. |
 | [doc.go](../doc.go) | `gopd` 패키지 문서 | 기본·상세·저수준 API의 사용 단계, 메모리 소유권, 동시 호출 제약, 좌표와 실행 순서의 의미를 설명합니다. |
 
-`content.go`는 **어떤 페이지와 콘텐츠를 해석할지** 관리하고, `content_state.go`는 **각 명령이 상태와 결과를 어떻게 바꾸는지** 구현합니다. `fonts.go`는 글꼴 리소스 전체를 다루고, `cmap.go`는 그중 문자 코드 매핑을 담당합니다.
+`pages.go`는 어떤 페이지와 콘텐츠를 해석할지 관리하고, `content.go`는 구문 분석과 실행을 연결합니다. `content_state.go`·`text.go`는 명령이 상태와 결과를 바꾸는 규칙, `content_resources.go`는 리소스를 통한 실행을 담당합니다. 서로 같은 상태를 공유하는 구현이므로 새 패키지나 인터페이스는 추가하지 않았습니다. `fonts.go`는 글꼴 리소스 전체를 다루고, `cmap.go`는 그중 문자 코드 매핑을 담당합니다.
 
 ### internal/document: PDF 파일과 객체 읽기
 
@@ -149,7 +163,7 @@ PDF 파일의 물리적 구조를 다루는 패키지입니다. xref는 객체 �
 
 1. [api.go](../api.go): `ParsePDF → Open → ParseFile → BuildPDF` 호출 흐름.
 2. [internal/document/read.go](../internal/document/read.go): 크기 제한을 검사하고 파일을 메모리 스냅샷으로 읽는 부분. `ParseFile`은 연 파일을 닫고 `Parse`는 호출자가 전달한 ReaderAt을 닫지 않습니다.
-3. [content.go](../content.go), [content_state.go](../content_state.go): 페이지와 그리기 명령에서 상세 콘텐츠를 만드는 부분.
+3. [pages.go](../pages.go) → [content.go](../content.go) → [content_state.go](../content_state.go): 페이지 선택, 콘텐츠 구문 분석, 명령 실행 순서. 텍스트는 [text.go](../text.go), 리소스는 [content_resources.go](../content_resources.go), 예산은 [semantic_budget.go](../semantic_budget.go)에서 이어 읽습니다.
 4. [basic.go](../basic.go): 상세 콘텐츠를 페이지별 `Texts`·`Graphics`로 정리하는 부분.
 
 `ParseFile`의 결과는 객체와 바이트를 조회하는 `Document`, `BuildPDF`의 결과는 페이지 내용을 해석한 `DetailedPDF`, `ParsePDF`의 결과는 페이지별 배열을 제공하는 `PDF`입니다. 현재 `ParsePDF`도 상세 분석을 수행하고 그 결과를 보관합니다. `Details()`를 호출할 때 다시 파싱하지 않습니다.
@@ -172,7 +186,7 @@ PDF 파일의 물리적 구조를 다루는 패키지입니다. xref는 객체 �
 
 ## 공개 API와 호환성
 
-외부 사용자는 계속 `github.com/MyungSub0519/gopd`를 가져와 `gopd.ParsePDF` 등을 호출합니다. 공개 함수는 [api.go](../api.go), 내부 타입의 공개 별칭은 [types.go](../types.go)에 있습니다. 필드·메서드·상수·JSON 및 오류·제한 동작은 유지합니다. 누락된 사전 키는 `errors.Is(err, gopd.ErrMissingKey)`로 확인합니다.
+외부 사용자는 계속 `github.com/MyungSub0519/gopd`를 가져와 `gopd.ParsePDF` 등을 호출합니다. 공개 함수는 [api.go](../api.go), 내부 타입의 공개 별칭은 [types.go](../types.go)에 있습니다. 공개 필드·메서드·상수·JSON 형식은 유지합니다. 값 해석과 제한 경계 오류는 수정하며, 반복 리소스 작업·스타일 출력·진단에도 예산을 적용하므로 이전에 성공한 입력이 `ErrLimit`을 반환할 수 있습니다. 계산 범위는 [자원 제한](resource-limits.md)을 확인하세요. 누락된 사전 키는 `errors.Is(err, gopd.ErrMissingKey)`로 확인합니다.
 
 이전 내부 이동으로 `Document`·공통 모델의 실제 정의 경로가 변경되었으며, 이번 통합에서 `Point`·`Rect`·`Matrix`의 정의도 `internal/geometry`에서 `internal/pdfmodel`로 이동했습니다. 이 차이는 `reflect.Type.PkgPath()`와 `%T`에 반영됩니다. 외부 코드는 내부 패키지 경로를 직접 가져오지 않습니다.
 
@@ -180,17 +194,22 @@ Go 1.25의 `go doc`은 별칭의 메서드를 따라가지 못할 수 있습니�
 
 ## 테스트
 
-테스트 파일은 총 10개이며, 같은 기능의 단위 테스트와 회귀 테스트를 함께 둡니다. 구현 파일마다 테스트 파일을 하나씩 만들지는 않습니다.
+같은 기능의 단위 테스트와 회귀 테스트를 함께 둡니다. 구현 파일마다 테스트 파일을 하나씩 만들지는 않습니다. 아래는 주요 테스트의 담당 범위입니다.
 
 | 위치 | 파일 | 검증 범위 |
 | --- | --- | --- |
 | 루트 | [basic_test.go](../basic_test.go) | 기본 응답·페이지별 배열·JSON |
 | 루트 | [content_test.go](../content_test.go) | 콘텐츠 실행·변환·그래픽 상태·공통 PDF 준비 함수 |
+| 루트 | [content_resources_test.go](../content_resources_test.go) | 반복 리소스·출력 스타일·진단 예산과 ExtGState의 참조·null 처리 |
+| 루트 | [content_hardening_test.go](../content_hardening_test.go), [content_fuzz_test.go](../content_fuzz_test.go) | 콘텐츠 경계·제한·malformed 입력·퍼즈 |
 | 루트 | [fonts_test.go](../fonts_test.go) | 글꼴 인코딩·CMap·Unicode 매핑 |
+| 루트 | [font_semantics_test.go](../font_semantics_test.go), [font_limits_test.go](../font_limits_test.go) | Differences 참조·정확한 표준 글꼴 이름·글꼴 및 CMap 예산 |
 | 루트 | [public_api_test.go](../public_api_test.go) | 외부 사용자 관점의 공개 API |
 | 루트 | [integration_test.go](../integration_test.go) | 합성 PDF의 기본·상세 결과 |
 | `internal/document` | [document_test.go](../internal/document/document_test.go) | 입력·바이트 범위·객체·xref·문서 퍼즈 |
 | `internal/document` | [filters_test.go](../internal/document/filters_test.go) | 필터·예측자·디코딩 제한 |
+| `internal/document` | [review_boundaries_test.go](../internal/document/review_boundaries_test.go) | 참조 깊이 경계·직접 null 옵션·소진된 예산의 빈 스트림 |
+| `internal/document` | [filters_fuzz_test.go](../internal/document/filters_fuzz_test.go) | 필터 및 TIFF/PNG 예측자 퍼즈 |
 | `internal/pdfmodel` | [model_test.go](../internal/pdfmodel/model_test.go) | 사전·값 변환·행렬 연산 |
 | `internal/syntax` | [syntax_test.go](../internal/syntax/syntax_test.go) | 토큰·객체 구문과 퍼즈 |
 | `cmd/gopd` | [main_test.go](../cmd/gopd/main_test.go) | CLI 호출과 출력 |
