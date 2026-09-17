@@ -75,7 +75,7 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 	page := DetailedPage{Index: len(b.pdf.Pages), Object: object, UserUnit: 1, Complete: true}
 	media, ok := values["MediaBox"]
 	if !ok {
-		return fmt.Errorf("Page missing MediaBox at %+v", object.Span)
+		return fmt.Errorf("page missing MediaBox at %+v", object.Span)
 	}
 	page.MediaBox, err = b.rect(media)
 	if err != nil {
