@@ -26,6 +26,9 @@ func (b *semanticBuilder) chargeValues(count int, kind string, span Span) error 
 }
 
 func (b *semanticBuilder) chargeStyle(state GraphicsState, span Span) error {
+	if !b.wantStyles() {
+		return nil
+	}
 	// Charge every occurrence even when detailed results share the slices.
 	// The basic projection copies these components into each element's style.
 	for _, values := range [][]float64{state.Dash, state.Stroke.Components, state.Fill.Components} {

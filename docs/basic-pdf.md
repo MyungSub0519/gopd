@@ -1,5 +1,7 @@
 # 기본 PDF API
 
+`ParsePDF`는 상세 분석 결과를 함께 보관하는 기존 API입니다. 콘텐츠 종류와 상세 수준을 선택해 필요한 결과만 생성하려면 [선택 추출 API](selective-extraction.md)의 `Extract` 또는 `ExtractReader`를 사용합니다. 기존 `ParsePDF`와 `Details()` 동작은 유지됩니다.
+
 ## 파일 경로 하나로 파싱하기
 
 ```go
@@ -127,6 +129,7 @@ if len(detail.Pages) > 0 {
 
 | 진입점 | 반환값과 역할 |
 | --- | --- |
+| `Extract(path, options)`, `ExtractReader(readerAt, size, options)` | `*Extraction`: 종류·상세 수준을 선택한 페이지별 결과 |
 | `ParsePDF(path)` | `*PDF`: 페이지별 텍스트·그래픽 |
 | `PDF.Details()` | `*DetailedPDF`: 같은 파싱의 상세 결과 |
 | `Open(path)` | `*DetailedPDF`: 파일에서 바로 상세 분석 |
@@ -175,6 +178,6 @@ if len(detail.Pages) > 0 {
 - 미지원 효과는 오류 없이 상세 진단으로 남을 수도 있습니다. `Details().Diagnostics`와 `Details().Structure.Diagnostics`에서 원인과 바이트 출처를 확인합니다.
 - 문자 해석은 `DecodeComplete`, 위치 계산 지원 여부는 `PositionComplete`로 확인합니다. 기본 결과에 글리프별 좌표 전체가 포함된다는 의미는 아닙니다.
 - 기본 스타일은 모든 렌더링 정보를 담지 않습니다. 전체 클리핑 경로·좌표 변환 상태 등은 상세 정보에 남아 있습니다.
-- 현재 `ParsePDF`는 상세 분석을 먼저 수행하고 기본 결과를 생성하며 상세 결과도 보관합니다. 필요한 콘텐츠만 파싱하거나 전체 메모리 사용량을 줄이는 기능은 아닙니다.
+- 현재 `ParsePDF`는 상세 분석을 먼저 수행하고 기본 결과를 생성하며 상세 결과도 보관합니다. 필요한 결과만 직접 생성하려면 `Extract`를 사용합니다. 선택 추출도 호출 중 입력과 디코딩 캐시를 보관하므로 전체 프로세스 메모리 상한을 보장하지 않습니다.
 - `Details()`는 이미 보관한 결과를 반환하므로 파일을 다시 읽지 않습니다. 반환 객체를 닫을 필요는 없습니다.
 - 결과는 읽기 전용으로 취급합니다. 기본 슬라이스 데이터는 상세 슬라이스와 분리하지만 같은 기본 리소스를 가리키는 포인터는 공유합니다. 상세 `Document`의 지연 메서드는 동시 호출을 지원하지 않습니다.

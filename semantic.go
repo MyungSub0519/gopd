@@ -6,6 +6,8 @@ import (
 )
 
 type semanticBuilder struct {
+	extract            *Extraction
+	fontInfos          map[int]*FontInfo
 	doc                *Document
 	pdf                *DetailedPDF
 	fonts              map[Span]int
@@ -97,8 +99,13 @@ func (b *semanticBuilder) diag(code, message string, span Span) error {
 		return fmt.Errorf("%w: expanded diagnostic byte limit at %+v", ErrLimit, span)
 	}
 	b.unicodeBytes += bytes
-	b.pdf.Diagnostics = append(b.pdf.Diagnostics, Diagnostic{Severity: SeverityWarning, Code: code, Message: message, Span: span})
-	b.pdf.diagnosticPages = append(b.pdf.diagnosticPages, b.page)
+	diagnostic := Diagnostic{Severity: SeverityWarning, Code: code, Message: message, Span: span}
+	if b.extract == nil {
+		b.pdf.Diagnostics = append(b.pdf.Diagnostics, diagnostic)
+		b.pdf.diagnosticPages = append(b.pdf.diagnosticPages, b.page)
+	} else {
+		b.extract.addDiagnostic(diagnostic, b.page)
+	}
 	if b.page >= 0 {
 		b.pdf.Pages[b.page].Complete = false
 	}

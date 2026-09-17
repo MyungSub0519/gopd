@@ -303,6 +303,10 @@ func (c *CMap) decode(raw []byte) (string, []decodedCode, bool) {
 }
 
 func (c *CMap) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bool, error) {
+	return c.decodeSelected(raw, limit, true)
+}
+
+func (c *CMap) decodeSelected(raw []byte, limit int64, collectCodes bool) (string, []decodedCode, bool, error) {
 	spaces := c.CodeSpaces
 	if len(spaces) == 0 {
 		lengths := make(map[int]bool)
@@ -331,7 +335,7 @@ func (c *CMap) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bo
 		if n == 0 {
 			n = 1
 		}
-		code := append([]byte(nil), raw[at:at+n]...)
+		code := raw[at : at+n]
 		u, ok := c.Mappings[string(code)]
 		if !ok {
 			u = "\uFFFD"
@@ -341,7 +345,9 @@ func (c *CMap) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bo
 			return "", nil, false, fmt.Errorf("%w: expanded Unicode text byte limit exceeded", ErrLimit)
 		}
 		out.WriteString(u)
-		codes = append(codes, decodedCode{code, u, ok})
+		if collectCodes {
+			codes = append(codes, decodedCode{append([]byte(nil), code...), u, ok})
+		}
 		at += n
 	}
 	return out.String(), codes, complete, nil

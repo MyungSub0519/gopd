@@ -42,6 +42,10 @@ func Read(r io.ReaderAt, size int64) (*DetailedPDF, error) {
 // an error and any partial result. Unsupported effects are retained as operations
 // and diagnostics. No pixel rendering, OCR, or reading-order reconstruction occurs.
 func BuildPDF(d *Document) (*DetailedPDF, error) {
+	return buildPDF(d, nil)
+}
+
+func buildPDF(d *Document, extraction *Extraction) (*DetailedPDF, error) {
 	if d == nil {
 		return nil, fmt.Errorf("nil Document")
 	}
@@ -50,6 +54,7 @@ func BuildPDF(d *Document) (*DetailedPDF, error) {
 		return p, fmt.Errorf("semantic decoding of encrypted PDF is unsupported")
 	}
 	b := &semanticBuilder{
+		extract:     extraction,
 		doc:         d,
 		pdf:         p,
 		fonts:       make(map[Span]int),

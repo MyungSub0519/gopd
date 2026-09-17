@@ -35,6 +35,9 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 		values[key] = value
 	}
 	for _, key := range []Name{"MediaBox", "CropBox", "Resources", "Rotate"} {
+		if key == "Resources" && !b.wantPageContent() {
+			continue
+		}
 		value, ok, err := b.get(dict, key)
 		if err != nil {
 			return err
@@ -109,27 +112,53 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 			return fmt.Errorf("invalid page UserUnit at %+v", unit.Span)
 		}
 	}
-	if contents, ok, e := b.get(dict, "Contents"); e != nil {
-		return e
-	} else if ok {
-		switch value := contents.Value.(type) {
-		case Array:
-			page.Contents = value.Items
-		case Stream:
-			page.Contents = []Object{contents}
-		case Null:
-		default:
-			return fmt.Errorf("invalid Page Contents at %+v", contents.Span)
+	if b.wantPageContent() {
+		if contents, ok, e := b.get(dict, "Contents"); e != nil {
+			return e
+		} else if ok {
+			switch value := contents.Value.(type) {
+			case Array:
+				page.Contents = value.Items
+			case Stream:
+				page.Contents = []Object{contents}
+			case Null:
+			default:
+				return fmt.Errorf("invalid Page Contents at %+v", contents.Span)
+			}
 		}
 	}
 	b.pdf.Pages = append(b.pdf.Pages, page)
+	if b.extract != nil {
+		b.extract.Pages = append(b.extract.Pages, ExtractedPage{
+			Index: page.Index, MediaBox: page.MediaBox, CropBox: page.CropBox,
+			Rotate: page.Rotate, UserUnit: page.UserUnit, Complete: true,
+		})
+		defer func() {
+			output := &b.extract.Pages[page.Index]
+			output.Complete = b.pdf.Pages[page.Index].Complete
+			if b.wantProvenance() {
+				output.Operations = b.pdf.Pages[page.Index].Operations
+			}
+		}()
+	}
 	previousPage := b.page
 	b.page = page.Index
 	defer func() { b.page = previousPage }()
 	if err := b.interpretPage(page); err != nil {
+		if b.extract != nil {
+			b.pdf.Pages[page.Index].Complete = false
+		}
 		return err
 	}
-	return b.readAnnotations(page.Index, dict)
+	if b.wants(ContentAnnotations) {
+		if err := b.readAnnotations(page.Index, dict); err != nil {
+			if b.extract != nil {
+				b.pdf.Pages[page.Index].Complete = false
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func (b *semanticBuilder) interpretPage(page DetailedPage) error {
@@ -203,9 +232,7 @@ func (b *semanticBuilder) readAnnotations(pageIndex int, dict Dictionary) error 
 					return e
 				}
 			}
-			index := len(b.pdf.Annotations)
-			b.pdf.Annotations = append(b.pdf.Annotations, a)
-			b.pdf.Pages[pageIndex].Annotations = append(b.pdf.Pages[pageIndex].Annotations, index)
+			b.emitAnnotation(a)
 		}
 	}
 	return nil

@@ -6,6 +6,9 @@ import (
 )
 
 func (c *contentInterpreter) moveText(x, y float64) {
+	if !c.b.wants(ContentText) || !c.b.wantPositions() {
+		return
+	}
 	c.lineMatrix = c.lineMatrix.Mul(translate(x, y))
 	c.textMatrix = c.lineMatrix
 	c.positionComplete = true
@@ -13,6 +16,9 @@ func (c *contentInterpreter) moveText(x, y float64) {
 func (c *contentInterpreter) showText(op Operation, index int) error {
 	if !c.inText {
 		return fmt.Errorf("text show outside BT/ET")
+	}
+	if !c.b.wants(ContentText) {
+		return nil
 	}
 	t := &c.state.text
 	var elements []Object
@@ -71,6 +77,9 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			if e != nil {
 				return e
 			}
+			if !c.b.wantPositions() {
+				continue
+			}
 			c.textMatrix = c.textMatrix.Mul(translate(-number/1000*t.size*t.hscale, 0))
 			if !finiteMatrix(c.textMatrix) {
 				return fmt.Errorf("text displacement overflow")
@@ -81,8 +90,12 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			return fmt.Errorf("%w: text character-code byte limit exceeded", ErrLimit)
 		}
 		c.b.glyphCodes += len(raw.Bytes)
-		text.RawCodes = append(text.RawCodes, raw.Bytes...)
-		decoded, codes, complete, decodeError := font.decodeBounded(raw.Bytes, c.b.maxUnicodeBytes-c.b.unicodeBytes)
+		if c.b.extract == nil {
+			text.RawCodes = append(text.RawCodes, raw.Bytes...)
+		}
+		decoded, codes, complete, decodeError := font.decodeSelected(
+			raw.Bytes, c.b.maxUnicodeBytes-c.b.unicodeBytes, c.b.wantPositions(),
+		)
 		if decodeError != nil {
 			return decodeError
 		}
@@ -108,7 +121,9 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			if !finitePoint(origin) || !finitePoint(end) {
 				return fmt.Errorf("text glyph coordinate overflow")
 			}
-			text.Glyphs = append(text.Glyphs, Glyph{Code: code.bytes, Unicode: code.unicode, Origin: origin, Advance: Point{X: end.X - origin.X, Y: end.Y - origin.Y}, DecodeComplete: code.complete, WidthKnown: widthKnown})
+			if c.b.wantGlyphs() {
+				text.Glyphs = append(text.Glyphs, Glyph{Code: code.bytes, Unicode: code.unicode, Origin: origin, Advance: Point{X: end.X - origin.X, Y: end.Y - origin.Y}, DecodeComplete: code.complete, WidthKnown: widthKnown})
+			}
 			text.PositionComplete = text.PositionComplete && widthKnown
 			c.positionComplete = c.positionComplete && widthKnown
 			c.textMatrix = c.textMatrix.Mul(translate(advance, 0))
@@ -123,7 +138,7 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			return err
 		}
 	}
-	if !text.PositionComplete {
+	if c.b.wantPositions() && !text.PositionComplete {
 		if err := c.b.diag("incomplete-text-positioning", "Some glyph widths or writing directions are unsupported", op.Span); err != nil {
 			return err
 		}
@@ -131,7 +146,6 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 	if err := c.b.chargeStyle(text.State, op.Span); err != nil {
 		return err
 	}
-	c.item(ElementText, len(c.b.pdf.Texts))
-	c.b.pdf.Texts = append(c.b.pdf.Texts, text)
+	c.emitText(text)
 	return nil
 }

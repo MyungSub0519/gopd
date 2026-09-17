@@ -75,6 +75,13 @@ func finiteMatrix(m Matrix) bool {
 func (c *contentInterpreter) execute(op Operation, index int) error {
 	g := &c.state.graphics
 	t := &c.state.text
+	if !c.b.wantStyles() {
+		switch op.Operator {
+		case "w", "J", "j", "M", "d", "ri", "G", "g", "RG", "rg", "K", "k",
+			"CS", "cs", "SC", "SCN", "sc", "scn":
+			return nil
+		}
+	}
 	switch op.Operator {
 	case "q":
 		if err := noOperands(op); err != nil {
@@ -94,6 +101,9 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		c.state = c.stack[len(c.stack)-1]
 		c.stack = c.stack[:len(c.stack)-1]
 	case "cm":
+		if !c.b.wantTransforms() {
+			return nil
+		}
 		n, e := operationNumbers(op, 6)
 		if e != nil {
 			return e
@@ -210,9 +220,13 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		if e := noOperands(op); e != nil {
 			return e
 		}
-		c.pendingClip = true
-		c.clipEvenOdd = op.Operator == "W*"
-		c.pathOperations = append(c.pathOperations, index)
+		if c.b.wantStyles() {
+			c.pendingClip = true
+			c.clipEvenOdd = op.Operator == "W*"
+			if c.b.wantProvenance() {
+				c.pathOperations = append(c.pathOperations, index)
+			}
+		}
 	case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n":
 		if e := noOperands(op); e != nil {
 			return e
@@ -249,6 +263,9 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		if e != nil {
 			return e
 		}
+		if !c.b.wants(ContentText) {
+			return nil
+		}
 		resource, e := c.resource("Font", name)
 		if e != nil {
 			return e
@@ -280,13 +297,16 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 				return fmt.Errorf("invalid text rendering mode")
 			}
 			t.renderMode = int(n[0])
-			if t.renderMode >= 4 {
+			if t.renderMode >= 4 && c.b.wantStyles() {
 				return c.unsupported(op, "Text clipping requires glyph outlines and is not applied")
 			}
 		}
 	case "Tm":
 		if !c.inText {
 			return fmt.Errorf("operator Tm outside text object")
+		}
+		if !c.b.wants(ContentText) || !c.b.wantPositions() {
+			return nil
 		}
 		n, e := operationNumbers(op, 6)
 		if e != nil {
@@ -324,7 +344,15 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		}
 		return c.xobject(name, op, index)
 	case "BI", "ID", "EI":
+		if c.b.extract != nil && !c.b.wantProvenance() {
+			return fmt.Errorf("inline image content is unsupported")
+		}
 		return fmt.Errorf("inline image content is unsupported; original content source is retained")
+	case "sh":
+		if !c.b.wants(ContentGraphics) {
+			return nil
+		}
+		return c.unsupported(op, "Operator sh is retained but its effect is unsupported")
 	case "BMC", "BDC", "EMC", "MP", "DP":
 		return c.unsupported(op, "Marked-content properties and optional-content visibility are retained without evaluation")
 	case "BX", "EX":
@@ -342,6 +370,13 @@ func (c *contentInterpreter) pathOperation(op Operation, index int) error {
 	n, e := operationNumbers(op, count)
 	if e != nil {
 		return e
+	}
+	if !c.b.wantPaths() {
+		if op.Operator != "m" && op.Operator != "re" && !c.pathStarted {
+			return fmt.Errorf("path operator without current point")
+		}
+		c.pathStarted = true
+		return nil
 	}
 	if op.Operator != "m" && op.Operator != "re" && len(c.path) == 0 {
 		return fmt.Errorf("path operator without current point")
@@ -368,7 +403,9 @@ func (c *contentInterpreter) pathOperation(op Operation, index int) error {
 		}
 	}
 	c.path = append(c.path, DetailedPathSegment{Operator: op.Operator, Points: points, Span: op.Span})
-	c.pathOperations = append(c.pathOperations, index)
+	if c.b.wantProvenance() {
+		c.pathOperations = append(c.pathOperations, index)
+	}
 	return nil
 }
 func (c *contentInterpreter) currentPoint() Point {
@@ -414,20 +451,21 @@ func (c *contentInterpreter) paint(op Operation, index int) error {
 	if (op.Operator == "s" || op.Operator == "b" || op.Operator == "b*") && len(c.path) > 0 {
 		c.path = append(c.path, DetailedPathSegment{Operator: "h", Points: []Point{c.subpathStart()}, Span: op.Span})
 	}
-	if op.Operator != "n" && len(c.path) > 0 {
+	if c.b.wants(ContentGraphics) && op.Operator != "n" && len(c.path) > 0 {
 		if err := c.b.chargeStyle(c.state.graphics, op.Span); err != nil {
 			return err
 		}
 		source := c.source(op, index)
-		source.Operations = append(append([]int(nil), c.pathOperations...), index)
-		for _, segment := range c.path {
-			source.Spans = append(source.Spans, segment.Span)
+		if c.b.wantProvenance() {
+			source.Operations = append(append([]int(nil), c.pathOperations...), index)
+			for _, segment := range c.path {
+				source.Spans = append(source.Spans, segment.Span)
+			}
 		}
 		graphic := DetailedGraphic{Source: source, Segments: c.path, Paint: op.Operator, State: c.state.graphics, EvenOdd: strings.HasSuffix(op.Operator, "*")}
 		graphic.Stroke = op.Operator == "S" || op.Operator == "s" || strings.HasPrefix(op.Operator, "B") || strings.HasPrefix(op.Operator, "b")
 		graphic.Fill = op.Operator != "S" && op.Operator != "s"
-		c.item(ElementGraphic, len(c.b.pdf.Graphics))
-		c.b.pdf.Graphics = append(c.b.pdf.Graphics, graphic)
+		c.emitGraphic(graphic)
 	}
 	if c.pendingClip {
 		if err := c.addClip(ClipPath{Segments: c.path, EvenOdd: c.clipEvenOdd}); err != nil {
@@ -437,5 +475,6 @@ func (c *contentInterpreter) paint(op Operation, index int) error {
 	c.path = nil
 	c.pathOperations = nil
 	c.pendingClip = false
+	c.pathStarted = false
 	return nil
 }

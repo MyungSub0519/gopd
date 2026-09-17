@@ -40,7 +40,10 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	font := Font{Object: object, ID: semID(resource), widths: make(map[uint32]float64)}
+	font := Font{Object: object, ID: semID(resource)}
+	if b.wantPositions() {
+		font.widths = make(map[uint32]float64)
+	}
 	font.Subtype, err = b.name(dict, "Subtype")
 	if err != nil {
 		return -1, err
@@ -55,58 +58,64 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 	}
 	font.composite = font.Subtype == "Type0"
 	font.PositioningSupported = font.Subtype == "Type1" || font.Subtype == "MMType1" || font.Subtype == "TrueType"
-	if font.Subtype == "Type3" {
+	if font.Subtype == "Type3" && b.wantPositions() {
 		if err := b.diag("unsupported-type3-font", "Type3 glyph content and font-matrix positioning are retained without execution", object.Span); err != nil {
 			return -1, err
 		}
 	}
 	metricDict := dict
 	if font.composite {
-		descendants, ok, e := b.get(dict, "DescendantFonts")
-		if e != nil {
-			return -1, e
-		}
-		if !ok {
-			return -1, fmt.Errorf("Type0 font missing DescendantFonts at %+v", object.Span)
-		}
-		array, ok := descendants.Value.(Array)
-		if !ok || len(array.Items) != 1 {
-			return -1, fmt.Errorf("invalid DescendantFonts at %+v", descendants.Span)
-		}
-		child, e := b.doc.ResolveObject(array.Items[0])
-		if e != nil {
-			return -1, e
-		}
-		metricDict, e = semDictionary(child)
-		if e != nil {
-			return -1, e
-		}
-		encoding, ok := font.Encoding.Value.(Name)
-		font.vertical = ok && strings.HasSuffix(string(encoding), "-V")
-		font.PositioningSupported = encoding == "Identity-H"
-		if !ok || (encoding != "Identity-H" && encoding != "Identity-V") {
-			if err := b.diag("unsupported-font-encoding", "Composite font encoding is not Identity-H/Identity-V; code widths and positioning may be incomplete", font.Encoding.Span); err != nil {
-				return -1, err
+		// Unicode decoding uses the parent Encoding and ToUnicode; the
+		// descendant is needed only for metrics.
+		if b.wantPositions() {
+			descendants, ok, e := b.get(dict, "DescendantFonts")
+			if e != nil {
+				return -1, e
 			}
-		}
-		font.defaultWidth = 1000
-		font.defaultWidthKnown = encoding == "Identity-H"
-		if value, ok, e := b.get(metricDict, "DW"); e != nil {
-			return -1, e
-		} else if ok {
-			font.defaultWidth, e = Number(value)
+			if !ok {
+				return -1, fmt.Errorf("Type0 font missing DescendantFonts at %+v", object.Span)
+			}
+			array, ok := descendants.Value.(Array)
+			if !ok || len(array.Items) != 1 {
+				return -1, fmt.Errorf("invalid DescendantFonts at %+v", descendants.Span)
+			}
+			child, e := b.doc.ResolveObject(array.Items[0])
+			if e != nil {
+				return -1, e
+			}
+			metricDict, e = semDictionary(child)
 			if e != nil {
 				return -1, e
 			}
 		}
-		if value, ok, e := b.get(metricDict, "W"); e != nil {
-			return -1, e
-		} else if ok {
-			if e = b.cidWidths(&font, value); e != nil {
-				return -1, e
+		encoding, ok := font.Encoding.Value.(Name)
+		font.vertical = ok && strings.HasSuffix(string(encoding), "-V")
+		font.PositioningSupported = encoding == "Identity-H"
+		if b.wantPositions() && (!ok || (encoding != "Identity-H" && encoding != "Identity-V")) {
+			if err := b.diag("unsupported-font-encoding", "Composite font encoding is not Identity-H/Identity-V; code widths and positioning may be incomplete", font.Encoding.Span); err != nil {
+				return -1, err
 			}
 		}
-	} else {
+		if b.wantPositions() {
+			font.defaultWidth = 1000
+			font.defaultWidthKnown = encoding == "Identity-H"
+			if value, ok, e := b.get(metricDict, "DW"); e != nil {
+				return -1, e
+			} else if ok {
+				font.defaultWidth, e = Number(value)
+				if e != nil {
+					return -1, e
+				}
+			}
+			if value, ok, e := b.get(metricDict, "W"); e != nil {
+				return -1, e
+			} else if ok {
+				if e = b.cidWidths(&font, value); e != nil {
+					return -1, e
+				}
+			}
+		}
+	} else if b.wantPositions() {
 		if first, ok, e := b.get(dict, "FirstChar"); e != nil {
 			return -1, e
 		} else if ok {
@@ -140,29 +149,35 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 			}
 		}
 	}
-	if descriptor, ok, e := b.get(metricDict, "FontDescriptor"); e != nil {
-		return -1, e
-	} else if ok {
-		dd, e := semDictionary(descriptor)
-		if e != nil {
+	if b.wantPositions() {
+		if descriptor, ok, e := b.get(metricDict, "FontDescriptor"); e != nil {
 			return -1, e
-		}
-		for _, name := range []Name{"FontFile", "FontFile2", "FontFile3"} {
-			if stream, exists, e := b.get(dd, name); e != nil {
-				return -1, e
-			} else if exists {
-				font.Embedded = &stream
-				break
-			}
-		}
-		if width, exists, e := b.get(dd, "MissingWidth"); e != nil {
-			return -1, e
-		} else if exists && !font.composite {
-			font.defaultWidth, e = Number(width)
+		} else if ok {
+			dd, e := semDictionary(descriptor)
 			if e != nil {
 				return -1, e
 			}
-			font.defaultWidthKnown = true
+			// Embedded bytes are retained only by the detailed API. Extraction
+			// uses dictionary metrics and never executes the font program.
+			if b.extract == nil {
+				for _, name := range []Name{"FontFile", "FontFile2", "FontFile3"} {
+					if stream, exists, e := b.get(dd, name); e != nil {
+						return -1, e
+					} else if exists {
+						font.Embedded = &stream
+						break
+					}
+				}
+			}
+			if width, exists, e := b.get(dd, "MissingWidth"); e != nil {
+				return -1, e
+			} else if exists && !font.composite {
+				font.defaultWidth, e = Number(width)
+				if e != nil {
+					return -1, e
+				}
+				font.defaultWidthKnown = true
+			}
 		}
 	}
 	if value, ok, e := b.get(dict, "ToUnicode"); e != nil {
@@ -411,8 +426,12 @@ func glyphUnicode(name string) (string, bool) {
 }
 
 func (f *Font) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bool, error) {
+	return f.decodeSelected(raw, limit, true)
+}
+
+func (f *Font) decodeSelected(raw []byte, limit int64, collectCodes bool) (string, []decodedCode, bool, error) {
 	if f.ToUnicode != nil {
-		return f.ToUnicode.decodeBounded(raw, limit)
+		return f.ToUnicode.decodeSelected(raw, limit, collectCodes)
 	}
 	var result strings.Builder
 	var codes []decodedCode
@@ -422,7 +441,7 @@ func (f *Font) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bo
 		if f.composite && at+2 <= len(raw) {
 			size = 2
 		}
-		code := append([]byte(nil), raw[at:at+size]...)
+		code := raw[at : at+size]
 		value, ok := f.simpleEncoding[code[0]]
 		if f.composite {
 			ok = false
@@ -435,7 +454,9 @@ func (f *Font) decodeBounded(raw []byte, limit int64) (string, []decodedCode, bo
 			return "", nil, false, fmt.Errorf("%w: expanded Unicode text byte limit exceeded", ErrLimit)
 		}
 		result.WriteString(value)
-		codes = append(codes, decodedCode{code, value, ok})
+		if collectCodes {
+			codes = append(codes, decodedCode{append([]byte(nil), code...), value, ok})
+		}
 		at += size
 	}
 	return result.String(), codes, complete, nil

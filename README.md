@@ -12,6 +12,48 @@ There were also native Go projects used commercially, but I was not happy with t
 
 This project draws on MuPDF as a reference.
 
+## Extract selected content
+
+Use `Extract` to generate only the content you need. Zero options return Unicode
+text and compact font metadata, grouped by page.
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/MyungSub0519/gopd"
+)
+
+func main() {
+    result, err := gopd.Extract("testdata/synthetic.pdf", gopd.ExtractOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    for _, page := range result.Pages {
+        for _, text := range page.Texts {
+            fmt.Println(page.Index+1, text.Unicode)
+        }
+    }
+}
+```
+
+Combine `ContentText`, `ContentGraphics`, `ContentImages`, and
+`ContentAnnotations` with `|`, or select `ContentAll`. `Positions`, `Styles`,
+`Glyphs`, and `Provenance` control optional details; `Glyphs` requires text and
+enables positions. `ExtractReader` accepts an `io.ReaderAt` and input size.
+
+Selected kinds share the content interpreter. Unrequested results are not
+constructed, and the result retains the input snapshot only with `Provenance`.
+Input and decoded caches still occupy memory during the call; this is not
+streaming file I/O or full validation of skipped content.
+
+Existing `ParsePDF` and detailed APIs remain available. `ParsePDF` still keeps
+its detailed result for `Details()`. See [selective extraction](docs/selective-extraction.md)
+and the [basic API guide](docs/basic-pdf.md) for options, ownership, and examples.
+
 ## Supported Features
 
 GoPD aims to provide detailed interpretation of PDF content and the internal structures that define it.

@@ -1,7 +1,9 @@
 package gopd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/MyungSub0519/gopd/internal/syntax"
 )
@@ -21,6 +23,8 @@ type contentInterpreter struct {
 	clipEvenOdd            bool
 	operands               []Object
 	formPath               []FormCall
+	formDepth              int
+	pathStarted            bool
 }
 
 func (c *contentInterpreter) stream(stream Stream) error {
@@ -50,6 +54,9 @@ func (c *contentInterpreter) interpretSource(source Source) error {
 	data, err := c.b.doc.Bytes(Span{Source: source.ID, Start: 0, End: source.Size})
 	if err != nil {
 		return err
+	}
+	if c.b.extract != nil {
+		return c.interpretSelected(data, source.ID)
 	}
 	tokens, err := Lex(data, source.ID, 0)
 	if err != nil {
@@ -101,12 +108,58 @@ func (c *contentInterpreter) interpretSource(source Source) error {
 }
 
 func (c *contentInterpreter) source(op Operation, index int) ElementSource {
+	if !c.b.wantProvenance() {
+		return ElementSource{Page: c.page}
+	}
 	spans := make([]Span, 0, len(op.Operands)+1)
 	for _, operand := range op.Operands {
 		spans = append(spans, operand.Span)
 	}
 	spans = append(spans, op.Span)
 	return ElementSource{Page: c.page, Spans: spans, Operations: []int{index}, FormPath: append([]FormCall(nil), c.formPath...)}
+}
+
+func (c *contentInterpreter) interpretSelected(data []byte, source SourceID) error {
+	scanner, err := syntax.NewContentScanner(data, source, 0, c.b.doc.Options.Limits)
+	if err != nil {
+		return err
+	}
+	for {
+		object, operator, values, err := scanner.Next(c.b.maxValues - c.b.semanticValues)
+		c.b.semanticValues += values
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !operator {
+			c.operands = append(c.operands, object)
+			if len(c.operands) > 65536 {
+				return fmt.Errorf("%w: content operand limit at %+v", ErrLimit, object.Span)
+			}
+			continue
+		}
+		if err := c.b.chargeSemantic("content operation", object.Span); err != nil {
+			return err
+		}
+		c.b.operations++
+		if c.b.operations > c.b.maxObjects {
+			return fmt.Errorf("%w: content operation limit at %+v", ErrLimit, object.Span)
+		}
+		op := Operation{Operator: string(object.Value.(Name)), Operands: c.operands, Span: object.Span}
+		c.operands = nil
+		index := -1
+		if c.b.wantProvenance() {
+			op.FormPath = append([]FormCall(nil), c.formPath...)
+			page := &c.b.pdf.Pages[c.page]
+			index = len(page.Operations)
+			page.Operations = append(page.Operations, op)
+		}
+		if err := c.execute(op, index); err != nil {
+			return fmt.Errorf("operator %s at source %d offset %d: %w", op.Operator, source, op.Span.Start, err)
+		}
+	}
 }
 
 func (c *contentInterpreter) item(kind ElementKind, index int) {

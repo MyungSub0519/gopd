@@ -58,6 +58,10 @@ type syntaxScanner struct {
 	offset        int64
 	pos           int
 	maxTokenBytes int64
+	// Optional sequential token budget. Value fields keep speculative reference
+	// lookahead from charging tokens unless the lookahead is committed.
+	maxTokens int
+	tokens    int
 }
 
 func newSyntaxScanner(data []byte, source pdfmodel.SourceID, offset, maxTokenBytes int64) (syntaxScanner, error) {
@@ -82,6 +86,12 @@ func (s *syntaxScanner) limitAt(pos int, message string) error {
 func (s *syntaxScanner) token(kind pdfmodel.TokenKind, start int) (pdfmodel.Token, error) {
 	if int64(s.pos-start) > s.maxTokenBytes {
 		return pdfmodel.Token{}, s.limitAt(start, "token byte limit exceeded")
+	}
+	if s.maxTokens > 0 && kind != pdfmodel.TokenEOF {
+		if s.tokens >= s.maxTokens {
+			return pdfmodel.Token{}, s.limitAt(start, "token count limit exceeded")
+		}
+		s.tokens++
 	}
 	return pdfmodel.Token{Kind: kind, Span: pdfmodel.Span{Source: s.source, Start: s.offset + int64(start), End: s.offset + int64(s.pos)}}, nil
 }

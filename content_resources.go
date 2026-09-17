@@ -86,6 +86,9 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 	if err != nil {
 		return err
 	}
+	if subtype == "Image" && !c.b.wants(ContentImages) {
+		return nil
+	}
 	_, optional, err := c.b.get(stream.Dictionary, "OC")
 	if err != nil {
 		return err
@@ -132,8 +135,7 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 				}
 				image.ImageMask = bool(v)
 			}
-			resource = len(c.b.pdf.ImageResources)
-			c.b.pdf.ImageResources = append(c.b.pdf.ImageResources, image)
+			resource = c.b.emitImageResource(image)
 			c.b.images[object.Span] = resource
 		}
 		placement := DetailedImage{Source: c.source(op, index), Resource: resource, Matrix: c.state.graphics.CTM, State: c.state.graphics}
@@ -143,10 +145,9 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 		if err := c.b.chargeStyle(placement.State, op.Span); err != nil {
 			return err
 		}
-		c.item(ElementImage, len(c.b.pdf.Images))
-		c.b.pdf.Images = append(c.b.pdf.Images, placement)
+		c.emitImage(placement)
 	case "Form":
-		if len(c.formPath) >= 64 || len(c.formPath) >= c.b.maxDepth {
+		if c.formDepth >= 64 || c.formDepth >= c.b.maxDepth {
 			return fmt.Errorf("%w: Form depth limit", ErrLimit)
 		}
 		if c.b.activeForms[object.Span] {
@@ -158,32 +159,40 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 		if optional {
 			child.state.graphics.Complete = false
 		}
-		child.formPath = append(append([]FormCall(nil), c.formPath...), FormCall{ObjectID: semID(input), Span: object.Span, Call: op.Span})
-		if matrix, ok, e := c.b.get(stream.Dictionary, "Matrix"); e != nil {
-			return e
-		} else if ok {
-			v, e := c.b.numbers(matrix, 6)
+		// Form depth must be tracked even when provenance is disabled.
+		child.formDepth = c.formDepth + 1
+		if c.b.wantProvenance() {
+			child.formPath = append(append([]FormCall(nil), c.formPath...), FormCall{ObjectID: semID(input), Span: object.Span, Call: op.Span})
+		}
+		if c.b.wantTransforms() {
+			if matrix, ok, e := c.b.get(stream.Dictionary, "Matrix"); e != nil {
+				return e
+			} else if ok {
+				v, e := c.b.numbers(matrix, 6)
+				if e != nil {
+					return e
+				}
+				child.state.graphics.CTM = c.state.graphics.CTM.Mul(Matrix(v))
+				if !finiteMatrix(child.state.graphics.CTM) {
+					return fmt.Errorf("form transformation overflow")
+				}
+			}
+		}
+		if c.b.wantStyles() {
+			bbox, ok, e := c.b.get(stream.Dictionary, "BBox")
 			if e != nil {
 				return e
 			}
-			child.state.graphics.CTM = c.state.graphics.CTM.Mul(Matrix(v))
-			if !finiteMatrix(child.state.graphics.CTM) {
-				return fmt.Errorf("form transformation overflow")
+			if !ok {
+				return fmt.Errorf("form missing BBox")
 			}
-		}
-		bbox, ok, e := c.b.get(stream.Dictionary, "BBox")
-		if e != nil {
-			return e
-		}
-		if !ok {
-			return fmt.Errorf("form missing BBox")
-		}
-		r, e := c.b.rect(bbox)
-		if e != nil {
-			return e
-		}
-		if e = child.addRectClip(r, bbox.Span); e != nil {
-			return e
+			r, e := c.b.rect(bbox)
+			if e != nil {
+				return e
+			}
+			if e = child.addRectClip(r, bbox.Span); e != nil {
+				return e
+			}
 		}
 		if resources, ok, e := c.b.get(stream.Dictionary, "Resources"); e != nil {
 			return e
@@ -193,11 +202,13 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 				return e
 			}
 		}
-		if _, ok, e := c.b.get(stream.Dictionary, "Group"); e != nil {
-			return e
-		} else if ok {
-			if err := child.unsupported(op, "Form transparency groups are preserved but not composited"); err != nil {
-				return err
+		if c.b.wantStyles() {
+			if _, ok, e := c.b.get(stream.Dictionary, "Group"); e != nil {
+				return e
+			} else if ok {
+				if err := child.unsupported(op, "Form transparency groups are preserved but not composited"); err != nil {
+					return err
+				}
 			}
 		}
 		if err = child.stream(stream); err != nil {
@@ -216,6 +227,9 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 }
 
 func (c *contentInterpreter) extGState(name Name, op Operation) error {
+	if !c.b.wants(ContentText) && !c.b.wantStyles() {
+		return nil
+	}
 	object, err := c.resource("ExtGState", name)
 	if err != nil {
 		return err
@@ -229,6 +243,12 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 		return err
 	}
 	for _, entry := range dict.Entries {
+		if entry.Key == "Font" && !c.b.wants(ContentText) {
+			continue
+		}
+		if entry.Key != "Font" && !c.b.wantStyles() {
+			continue
+		}
 		value, err := c.b.doc.ResolveObject(entry.Value)
 		if err != nil {
 			return err

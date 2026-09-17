@@ -12,6 +12,39 @@ Go 네이티브로 작성된 프로젝트 중에는 상업적으로 사용되는
 
 이 프로젝트는 MuPDF를 참고했습니다.
 
+## 필요한 콘텐츠만 추출하기
+
+`Extract`는 요청한 종류의 결과만 생성합니다. 빈 옵션은 Unicode 텍스트와 기본 글꼴 정보를 페이지별로 반환합니다.
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/MyungSub0519/gopd"
+)
+
+func main() {
+    result, err := gopd.Extract("testdata/synthetic.pdf", gopd.ExtractOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    for _, page := range result.Pages {
+        for _, text := range page.Texts {
+            fmt.Println(page.Index+1, text.Unicode)
+        }
+    }
+}
+```
+
+`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. `Positions`, `Styles`, `Glyphs`, `Provenance`로 상세 정보를 선택합니다. `Glyphs`는 텍스트 선택이 필요하며 위치 계산도 활성화합니다. `ExtractReader`는 `io.ReaderAt`과 입력 크기를 받습니다.
+
+선택한 종류는 콘텐츠 순회기를 공유합니다. 미선택 결과는 생성하지 않으며 `Provenance`를 켰을 때만 결과가 원본 스냅샷을 보관합니다. 호출 중에는 입력과 디코딩 캐시가 메모리에 남습니다. 스트리밍 파일 읽기나 건너뛴 콘텐츠의 전체 유효성 검사를 보장하지 않습니다.
+
+기존 `ParsePDF`와 상세 API도 유지됩니다. `ParsePDF`는 `Details()`에 제공할 상세 결과를 계속 보관합니다. 옵션과 사용 예시는 [선택 추출 안내](docs/selective-extraction.md), [기본 API 안내](docs/basic-pdf.md)를 참고하세요.
+
 ## 지원 기능
 
 GoPD는 PDF에 담긴 콘텐츠와 그 콘텐츠를 구성하는 내부 구조까지 정밀하게 해석하는 것을 목표로 합니다.
