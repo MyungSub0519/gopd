@@ -20,7 +20,6 @@ gopd/
 ├── basic.go                기본 결과, FontInfo, Details(), 기본 결과 변환
 ├── detailed_model.go       상세 페이지·텍스트·그래픽·이미지 모델
 ├── style_types.go          색상·선·채우기·클리핑 상태
-├── compat_types.go         기존 API 호환 타입
 ├── semantic.go             콘텐츠 해석 세션·의미 기반 값 조회·진단
 ├── semantic_budget.go      해석 작업량·값·출력 스타일 예산
 ├── pages.go                페이지 트리·상속·콘텐츠 연결·주석
@@ -106,7 +105,6 @@ gopd/
 | [text.go](../text.go) | `moveText`, `showText` | 문자 표시에서 텍스트·글리프·이동량을 만들고 텍스트 위치를 갱신합니다. |
 | [fonts.go](../fonts.go) | `Font`, `font`, `cidWidths`, `simpleFontEncoding`, `decodeBounded` | 글꼴 리소스의 종류·이름·인코딩·문자 폭·ToUnicode 정보를 읽습니다. 콘텐츠에 들어 있는 문자 코드를 해석하고, 글리프 위치 계산에 필요한 폭 정보를 제공합니다. |
 | [cmap.go](../cmap.go) | `CodeSpace`, `CMap`, `parseToUnicode`, `decodeBounded` | ToUnicode CMap을 읽어 PDF 글꼴의 문자 코드와 Unicode 문자열을 연결합니다. 코드 길이와 매핑 범위를 처리하고 디코딩 결과의 완전성 및 출력 크기 제한을 관리합니다. |
-| [compat_types.go](../compat_types.go) | `Page`, `Image`, `ImageInfo`, `ParseDiagnostic` | 기존 API와의 호환성을 위해 남겨 둔 사용 중단 예정 타입입니다. 현재 기본 응답은 `basic.go`, 상세 응답은 `detailed_model.go`를 기준으로 봅니다. |
 | [doc.go](../doc.go) | `gopd` 패키지 문서 | 기본·상세·저수준 API의 사용 단계, 메모리 소유권, 동시 호출 제약, 좌표와 실행 순서의 의미를 설명합니다. |
 
 `pages.go`는 어떤 페이지와 콘텐츠를 해석할지 관리하고, `content.go`는 구문 분석과 실행을 연결합니다. `content_state.go`·`text.go`는 명령이 상태와 결과를 바꾸는 규칙, `content_resources.go`는 리소스를 통한 실행을 담당합니다. 서로 같은 상태를 공유하는 구현이므로 새 패키지나 인터페이스는 추가하지 않았습니다. `fonts.go`는 글꼴 리소스 전체를 다루고, `cmap.go`는 그중 문자 코드 매핑을 담당합니다.

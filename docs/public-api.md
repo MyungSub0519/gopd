@@ -186,20 +186,8 @@ CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조
 | xref | `XRefEntry`, `FreeEntry`, `InUseEntry`, `CompressedEntry`, `UnknownXRefEntry`, `XRefRecord`, `XRefRange`, `XRefForm`, `SectionID`, `XRefSection` | [structure.go](../internal/pdfmodel/structure.go) |
 | 파일 구조·진단 | `Version`, `Header`, `FileTail`, `RegionKind`, `FileRegion`, `Severity`, `Diagnostic`, `Structure` | [structure.go](../internal/pdfmodel/structure.go) |
 | 토큰 | `TokenKind`, `Token` | [token.go](../internal/pdfmodel/token.go) |
-| 기존 호환성 | `Page`, `Image`, `ImageInfo`, `ParseDiagnostic` | [compat_types.go](../compat_types.go) |
 
 `ElementKind`, `TokenKind`, `Severity` 등의 기존 상수와 `ErrMissingKey`도 유지합니다. 모든 타입이 완전한 PDF 규격 지원을 의미하지는 않습니다. 예를 들어 복구·복호화 등을 표현하는 타입 값이 정의되어 있어도 해당 처리가 구현되지 않은 경우가 있습니다.
-
-### 현재 결과에서 사용하지 않는 기존 타입
-
-아래 네 타입은 기존 호출 코드의 컴파일 호환성을 위해 선언과 필드를 유지합니다. 문서 주석의 `Deprecated:` 표시는 새 코드에서 사용할 실제 결과 타입을 안내하며, 타입을 제거한 것은 아닙니다.
-
-| 기존 타입 | 권장 접근 |
-| --- | --- |
-| `Page` | `PDF.Details().Pages`의 `DetailedPage` |
-| `Image` | `PDF.Details().Images`의 `DetailedImage` |
-| `ImageInfo` | `PDF.Details().ImageResources`의 `ImageResource` |
-| `ParseDiagnostic` | `PDF.Details().Diagnostics`, `Structure.Diagnostics`의 `Diagnostic` |
 
 ## 코드 구성 기준
 
@@ -209,7 +197,6 @@ types.go              내부 타입·상수·오류의 공개 별칭
 basic.go              기본 결과·FontInfo·Details()·기본 결과 변환
 detailed_model.go     상세 반환 타입
 style_types.go        스타일·그래픽 상태
-compat_types.go       기존 호환성 타입
 semantic*.go          콘텐츠 해석 세션·공통 조회·진단·자원 예산
 pages.go              페이지 트리·상속·콘텐츠 연결·주석
 content*.go           콘텐츠 구문·명령 실행·리소스·Form/Image·ExtGState
