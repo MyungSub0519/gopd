@@ -127,8 +127,8 @@ func TestContentRejectsDuplicateGraphicsStateEntries(t *testing.T) {
 	}
 }
 
-func TestContentDoesNotClaimCustomCIDOrType3Positioning(t *testing.T) {
-	for _, font := range []string{`<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding /Custom-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>`, `<< /Type /Font /Subtype /Type3 /BaseFont /Test /FirstChar 0 /Widths [500 500] /ToUnicode 7 0 R /FontMatrix [0.002 0 0 0.002 0 0] >>`} {
+func TestContentDoesNotClaimCustomCIDPositioning(t *testing.T) {
+	for _, font := range []string{`<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding /Custom-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>`} {
 		p := semanticRead(t, `<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", `BT /F 10 Tf <01> Tj ET`), font, `<< /Type /Font /Subtype /CIDFontType2 /W [1 [500]] >>`, semanticStream("", `1 beginbfchar <01> <AC00> endbfchar`))
 		if p.Texts[0].PositionComplete {
 			t.Fatalf("claimed unsupported positioning for %s", font)

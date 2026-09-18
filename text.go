@@ -111,7 +111,7 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			if !font.PositioningSupported {
 				widthKnown = false
 			}
-			advance := (width/1000*t.size + t.charSpace) * t.hscale
+			advance := (width*font.effectiveWidthScale()*t.size + t.charSpace) * t.hscale
 			if len(code.bytes) == 1 && code.bytes[0] == 32 {
 				advance += t.wordSpace * t.hscale
 			}
