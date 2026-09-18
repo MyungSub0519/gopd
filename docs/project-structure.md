@@ -63,7 +63,7 @@ gopd/
 │   │   └── model_test.go      PDF 값·사전·좌표 연산 테스트
 │   └── pdftest/
 │       └── fixture.go         테스트용 PDF·스트림 생성
-├── cmd/gopd/
+├── examples/gopd/
 │   ├── main.go               CLI 인자 처리와 결과 출력
 │   └── main_test.go          CLI 테스트
 ├── testdata/
@@ -152,7 +152,7 @@ PDF 파일의 물리적 구조를 다루는 패키지입니다. xref는 객체 �
 | 파일 | 작성된 기능 |
 | --- | --- |
 | [internal/pdftest/fixture.go](../internal/pdftest/fixture.go) | `File`과 `Stream`으로 테스트에 필요한 작은 PDF와 스트림을 만듭니다. 파서 구현에 의존하지 않아 입력 생성과 파싱 검증을 분리합니다. |
-| [cmd/gopd/main.go](../cmd/gopd/main.go) | CLI 인자를 검사하고 `ParsePDF`를 호출합니다. 기본 통계, `-text` 텍스트, `-json` 통계를 출력하고 종료 코드를 결정합니다. `-json`은 전체 기본 응답이 아니라 개수 중심 요약 JSON입니다. |
+| [examples/gopd/main.go](../examples/gopd/main.go) | CLI 인자를 검사하고 `ParsePDF`를 호출합니다. 기본 통계, `-text` 텍스트, `-json` 통계를 출력하고 종료 코드를 결정합니다. `-json`은 전체 기본 응답이 아니라 개수 중심 요약 JSON입니다. |
 | [go.mod](../go.mod) | 모듈 경로 `github.com/MyungSub0519/gopd`와 Go 버전 `1.25.0`을 선언합니다. |
 
 각 테스트 파일의 담당 범위는 아래 **테스트** 절에 정리했습니다. [공개 API 목록](public-api.md)은 함수와 타입을, [기본 응답](basic-pdf.md)과 [JSON 구조](json-structure.md)는 반환값을 설명합니다. `docs/superpowers`는 작업 당시의 설계·계획 기록이므로 현재 파일 배치는 이 문서를 기준으로 확인합니다.
@@ -210,7 +210,7 @@ Go 1.25의 `go doc`은 별칭의 메서드를 따라가지 못할 수 있습니�
 | `internal/document` | [filters_fuzz_test.go](../internal/document/filters_fuzz_test.go) | 필터 및 TIFF/PNG 예측자 퍼즈 |
 | `internal/pdfmodel` | [model_test.go](../internal/pdfmodel/model_test.go) | 사전·값 변환·행렬 연산 |
 | `internal/syntax` | [syntax_test.go](../internal/syntax/syntax_test.go) | 토큰·객체 구문과 퍼즈 |
-| `cmd/gopd` | [main_test.go](../cmd/gopd/main_test.go) | CLI 호출과 출력 |
+| `examples/gopd` | [main_test.go](../examples/gopd/main_test.go) | CLI 호출과 출력 |
 
 테스트는 구현과 같은 패키지에 둡니다. 공개 API 검증은 루트 `public_api_test.go`의 `gopd_test` 패키지에서 수행합니다. 루트 `integration_test.go`와 CLI 테스트는 저장소에 포함된 `testdata/synthetic.pdf`를 사용하며, 파일이 없으면 실패합니다. 이 PDF는 실제 인물·주소·문서 메타데이터 없이 만든 두 페이지 합성 문서입니다. 생성 방법과 예상 콘텐츠는 [테스트 데이터 안내](../testdata/README.md)를 참고하세요.
 

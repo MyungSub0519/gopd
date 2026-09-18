@@ -58,7 +58,7 @@ func main() {
 
 반환된 `*PDF`의 공개 필드는 `Texts [][]Text`, `Graphics [][]Graphic` 두 개입니다. 바깥 배열은 페이지 순서이며 요소가 없는 페이지는 빈 배열 `[]`로 유지합니다. 페이지 정보·이미지·진단을 포함한 상세 결과는 `doc.Details()`로 접근합니다. 반환 필드와 JSON 사용법은 [기본 PDF API](basic-pdf.md)를 참고하세요.
 
-CLI의 [main.go](../cmd/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조 함수이며 내부에서 `gopd.ParsePDF()`를 호출합니다. 외부 라이브러리 사용자는 `gopd.ParsePDF()`를 사용합니다.
+CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조 함수이며 내부에서 `gopd.ParsePDF()`를 호출합니다. 외부 라이브러리 사용자는 `gopd.ParsePDF()`를 사용합니다.
 
 ## 1. PDF 파싱 함수 — 6개
 
@@ -207,7 +207,7 @@ internal/document/   파일·바이트 범위·객체·xref·스트림 읽기
 internal/syntax/     토큰·객체 구문 해석
 internal/pdfmodel/   공통 모델·사전 조회·값 변환·좌표 계산
 internal/pdftest/    테스트용 PDF·스트림 생성기
-cmd/gopd/           CLI 인수 처리와 표시
+examples/gopd/      CLI 인수 처리와 표시
 ```
 
 공개 함수는 `api.go`, 별칭은 `types.go`에서 찾습니다. 기본 응답과 변환은 `basic.go`에서 함께 읽을 수 있습니다. 파일 읽기·구문 분석 구현은 내부 패키지에 두며, CLI는 라이브러리를 호출합니다. 패키지 경계, 타입 이동의 호환성 범위, 테스트 배치는 [프로젝트 구조](project-structure.md)를 참고하세요.
