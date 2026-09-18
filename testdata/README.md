@@ -14,7 +14,7 @@ Run from the repository root:
 ```text
 go run ./testdata/generate.go
 go run ./testdata/generate.go -check
-go run ./cmd/gopd -json testdata/synthetic.pdf
+go run ./examples/gopd -json testdata/synthetic.pdf
 go test ./...
 ```
 

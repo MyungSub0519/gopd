@@ -29,7 +29,7 @@ func main() {
 }
 ```
 
-CLI의 [main.go](../cmd/gopd/main.go)에는 같은 기능을 호출하는 함수가 있습니다.
+CLI의 [main.go](../examples/gopd/main.go)에는 같은 기능을 호출하는 함수가 있습니다.
 
 ```go
 func pdfparse(path string) (*gopd.PDF, error) {
@@ -158,7 +158,7 @@ if len(detail.Pages) > 0 {
 
 원본 객체·바이트 범위·명령·글리프·CMap·스트림·상세 진단은 자동으로 직렬화하지 않습니다. 내부 상세 결과 포인터는 비공개 필드입니다. 글꼴의 기본 정보는 각 사용 위치에 중첩해 저장되므로 Go에서 공유하는 포인터 관계가 JSON에 자동 보존되는 것은 아닙니다.
 
-`go run ./cmd/gopd -json file.pdf`는 기존대로 개수 요약을 출력합니다. 기본 객체 전체 JSON을 출력하는 CLI 옵션을 추가한 것은 아닙니다.
+`go run ./examples/gopd -json file.pdf`는 기존대로 개수 요약을 출력합니다. 기본 객체 전체 JSON을 출력하는 CLI 옵션을 추가한 것은 아닙니다.
 
 ## 기존 기본 API에서 이전하기
 
