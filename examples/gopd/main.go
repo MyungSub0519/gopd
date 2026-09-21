@@ -6,7 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/MyungSub0519/gopd"
 )
@@ -40,13 +43,17 @@ func run(args []string, out, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	textOnly := flags.Bool("text", false, "print extracted text in content execution order")
 	jsonOutput := flags.Bool("json", false, "print JSON counts without binary resources")
-	flags.Usage = func() { fmt.Fprintln(stderr, "Usage: gopd [-text | -json] file.pdf"); flags.PrintDefaults() }
+	layoutOutput := flags.Bool("layout", false, "print text reconstructed into visual lines (implies -text)")
+	flags.Usage = func() { fmt.Fprintln(stderr, "Usage: gopd [-text | -json | -layout] file.pdf"); flags.PrintDefaults() }
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if flags.NArg() != 1 || (*textOnly && *jsonOutput) {
+	if *jsonOutput && (*textOnly || *layoutOutput) || flags.NArg() != 1 {
 		flags.Usage()
 		return 2
+	}
+	if *layoutOutput {
+		return printLayout(flags.Arg(0), out, stderr)
 	}
 	doc, err := pdfparse(flags.Arg(0))
 	if err != nil {
@@ -103,3 +110,61 @@ func run(args []string, out, stderr io.Writer) int {
 }
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// printLayout reconstructs visual lines from glyph origins: one output line per
+// (page, baseline) group, glyphs ordered by x, a space inserted only where the
+// advance-based gap exceeds a fraction of the font size.
+func printLayout(path string, out, stderr io.Writer) int {
+	detail, err := gopd.Open(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "gopd:", err)
+		return 1
+	}
+	type lineKey struct {
+		page int
+		y    int
+	}
+	type glyph struct {
+		x, end, size float64
+		s            string
+	}
+	lines := map[lineKey][]glyph{}
+	for _, t := range detail.Texts {
+		for _, gl := range t.Glyphs {
+			k := lineKey{t.Source.Page, int(math.Round(gl.Origin.Y))}
+			lines[k] = append(lines[k], glyph{gl.Origin.X, gl.Origin.X + gl.Advance.X, t.FontSize, gl.Unicode})
+		}
+	}
+	keys := make([]lineKey, 0, len(lines))
+	for k := range lines {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].page != keys[j].page {
+			return keys[i].page < keys[j].page
+		}
+		return keys[i].y > keys[j].y
+	})
+	lastPage := -1
+	for _, k := range keys {
+		row := lines[k]
+		sort.Slice(row, func(i, j int) bool { return row[i].x < row[j].x })
+		if lastPage >= 0 && k.page != lastPage {
+			fmt.Fprintln(out, "\f")
+		}
+		lastPage = k.page
+		var b strings.Builder
+		prevEnd := math.Inf(1)
+		prevSpace := true
+		for _, g := range row {
+			if gap := g.x - prevEnd; gap > g.size*0.5 && !prevSpace {
+				b.WriteString(" ")
+			}
+			b.WriteString(g.s)
+			prevSpace = strings.TrimSpace(g.s) == ""
+			prevEnd = g.end
+		}
+		fmt.Fprintln(out, strings.TrimRight(b.String(), " "))
+	}
+	return 0
+}
