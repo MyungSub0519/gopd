@@ -4,13 +4,32 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/MyungSub0519/gopd"
-	"github.com/MyungSub0519/gopd/internal/pdftest"
+	"github.com/MyungSub0519/gopd/internal/common/pdftest"
 )
+
+func ExampleExtract() {
+	result, err := gopd.Extract("testdata/synthetic.pdf", gopd.ExtractOptions{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	for _, page := range result.Pages {
+		for _, text := range page.Texts {
+			fmt.Println(text.Unicode)
+		}
+	}
+	// Output:
+	// GoPD synthetic fixture
+	// Alpha beta 123
+	// Page two: shared resources
+	// Reusable form
+}
 
 const publicContent = "0 0 m 10 10 l S BT /F 12 Tf 1 0 0 1 20 30 Tm (A) Tj ET"
 
@@ -175,5 +194,58 @@ func TestPublicErrorsAndReadLimits(t *testing.T) {
 	}
 	if _, err := gopd.Int(gopd.Object{Value: gopd.Name("Name")}); err == nil {
 		t.Fatal("integer conversion accepted a name")
+	}
+}
+
+func TestPublicExtractionEntryPoints(t *testing.T) {
+	path, data := publicFixture(t)
+	entryPoints := []struct {
+		name    string
+		extract func(gopd.ExtractOptions) (*gopd.Extraction, error)
+	}{
+		{"file", func(options gopd.ExtractOptions) (*gopd.Extraction, error) {
+			return gopd.Extract(path, options)
+		}},
+		{"reader", func(options gopd.ExtractOptions) (*gopd.Extraction, error) {
+			return gopd.ExtractReader(bytes.NewReader(data), int64(len(data)), options)
+		}},
+	}
+	for _, entry := range entryPoints {
+		t.Run(entry.name, func(t *testing.T) {
+			basic, err := entry.extract(gopd.ExtractOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if basic.Content != gopd.ContentText || len(basic.Pages) != 1 || len(basic.Pages[0].Texts) != 1 {
+				t.Fatal("default extraction lost page text")
+			}
+			text := basic.Pages[0].Texts[0]
+			if text.Unicode != "A" || text.Position != nil || text.Style != nil || basic.Document != nil || len(basic.Pages[0].Graphics) != 0 {
+				t.Fatal("default extraction retained unrequested content or details")
+			}
+
+			detailed, err := entry.extract(gopd.ExtractOptions{
+				Content: gopd.ContentAll, Glyphs: true, Styles: true, Provenance: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detailed.Content != gopd.ContentAll || detailed.Document == nil || len(detailed.Pages) != 1 || len(detailed.Pages[0].Texts) != 1 || len(detailed.Pages[0].Graphics) != 1 {
+				t.Fatal("extraction options lost content or provenance")
+			}
+			text = detailed.Pages[0].Texts[0]
+			if text.Position == nil || text.Position.Matrix[4] != 20 || text.Position.Matrix[5] != 30 || len(text.Glyphs) != 1 || text.Style == nil || text.Source == nil {
+				t.Fatal("extraction options lost text details")
+			}
+
+			if _, err := entry.extract(gopd.ExtractOptions{Content: gopd.ContentImages, Glyphs: true}); err == nil {
+				t.Fatal("glyph extraction without text must fail")
+			}
+			if _, err := entry.extract(gopd.ExtractOptions{
+				ReadOptions: gopd.ReadOptions{MaxFileBytes: int64(len(data) - 1)},
+			}); !errors.Is(err, gopd.ErrLimit) {
+				t.Fatalf("extraction input limit = %v", err)
+			}
+		})
 	}
 }

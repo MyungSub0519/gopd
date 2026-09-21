@@ -14,7 +14,9 @@ remain separate release work:
   regression and fuzz fixtures. The checked-in `testdata/synthetic.pdf` is
   required by integration and CLI tests; a missing fixture fails these tests.
 - [ ] Decide the stable public model boundary: mutable Document fields and
-  internal type aliases currently expose implementation choices.
+  internal type aliases currently expose implementation choices. Definitions now
+  live in `internal/common` and `internal/parser`; document the resulting changes
+  to reflection package paths and `%T` output when versioning the release.
 - [ ] Design selective/page-at-a-time interpretation and bounded lazy ReaderAt
   access without changing existing snapshot lifetimes.
 - [ ] Design cancellation and consistent structured errors across all parser

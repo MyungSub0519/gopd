@@ -60,3 +60,7 @@ GoPD는 PDF에 담긴 콘텐츠와 그 콘텐츠를 구성하는 내부 구조�
 
 현재 처리 범위와 제한 설정은 [리소스 제한 문서](docs/resource-limits.md)를 참고하세요.
 [기여 안내](CONTRIBUTING.md)와 [공개 전 점검 항목](docs/release-checklist.md)도 제공합니다.
+
+## 프로젝트 구조
+
+루트 패키지는 공개 API와 타입 별칭을 제공합니다. 콘텐츠 해석·선택 추출·결과 모델은 `internal/parser`에, 공통 PDF 모델·구문 분석·문서 읽기·테스트 입력 생성기는 `internal/common`의 하위 패키지에 있습니다. 파일별 역할과 의존 방향은 [프로젝트 구조 안내](docs/project-structure.md)를 참고하세요.

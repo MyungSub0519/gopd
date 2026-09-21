@@ -71,7 +71,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 | `func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error)` | ReaderAt 입력의 저수준 분석과 객체 접근 준비 |
 | `func BuildPDF(d *Document) (*DetailedPDF, error)` | 저수준 Document의 페이지 트리와 콘텐츠를 해석해 상세 결과 생성 |
 
-공개 진입점은 [api.go](../api.go)에 모여 있습니다. 파일·ReaderAt 읽기는 [internal/document/read.go](../internal/document/read.go), 콘텐츠 해석은 [content.go](../content.go), 기본 결과 변환은 [basic.go](../basic.go)에 있습니다.
+공개 진입점은 [api.go](../api.go)에 모여 있습니다. 파일·ReaderAt 읽기는 [internal/common/document/read.go](../internal/common/document/read.go), 콘텐츠 해석 진입점은 [parser.go](../internal/parser/parser.go), 명령 분배는 [interpreter.go](../internal/parser/interpreter.go), 기본 결과 변환은 [basic.go](../internal/parser/basic.go)에 있습니다.
 
 `Parse`와 `ParseFile`의 `options`는 생략하거나 하나 전달할 수 있습니다. `ReadOptions.MaxFileBytes`와 `ReadOptions.Limits`로 입력 크기·구문 깊이·토큰 크기·객체 수·xref 섹션 수·디코딩 데이터 제한을 설정합니다. 각 필드의 0은 기본값을 사용하고 음수는 오류입니다.
 
@@ -88,7 +88,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 `source`는 입력이 속한 소스의 식별자이고, `offset`은 그 소스에서 `data[0]`의 바이트 위치입니다. 이 함수들은 전달받은 바이트를 분석하며 Document에 소스를 등록하지 않습니다.
 
-진입점: [api.go](../api.go). 실제 스캐너와 객체 parser는 [internal/syntax/lexer.go](../internal/syntax/lexer.go), [internal/syntax/parser.go](../internal/syntax/parser.go)에 있습니다.
+진입점: [api.go](../api.go). 실제 스캐너와 객체 parser는 [internal/common/syntax/lexer.go](../internal/common/syntax/lexer.go), [internal/common/syntax/parser.go](../internal/common/syntax/parser.go)에 있습니다.
 
 ## 3. 값 확인·변환 함수 — 3개
 
@@ -100,7 +100,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 이 함수들은 간접 참조를 자동으로 해석하지 않습니다. 필요한 경우 먼저 `Document.ResolveObject`를 호출합니다.
 
-공개 함수: [api.go](../api.go). 사전 메서드와 변환 구현: [internal/pdfmodel/object.go](../internal/pdfmodel/object.go).
+공개 함수: [api.go](../api.go). 사전 메서드와 변환 구현: [internal/common/pdfmodel/object.go](../internal/common/pdfmodel/object.go).
 
 ## 4. 좌표 변환 함수 — 1개
 
@@ -108,7 +108,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 | --- | --- |
 | `func IdentityMatrix() Matrix` | 좌표를 변경하지 않는 항등 행렬 `[1 0 0 1 0 0]` 생성 |
 
-공개 함수는 [api.go](../api.go), 타입 별칭은 [types.go](../types.go), 계산 구현은 [internal/pdfmodel/geometry.go](../internal/pdfmodel/geometry.go)에 있습니다.
+공개 함수는 [api.go](../api.go), 타입 별칭은 [types.go](../types.go), 계산 구현은 [internal/common/pdfmodel/geometry.go](../internal/common/pdfmodel/geometry.go)에 있습니다.
 
 ## 5. PDF 메서드 — 1개
 
@@ -118,7 +118,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 `Details()`는 파일을 다시 읽지 않습니다. 기본 결과의 Texts·Graphics는 페이지별 이중 배열이며 상세 결과는 문서 전체의 평면 배열입니다. 특정 페이지의 상세 요소는 `detail.Pages[page].Items`의 Kind와 Index로 찾습니다. 기본 배열의 안쪽 인덱스를 상세 배열의 전역 인덱스로 사용할 수는 없습니다.
 
-구현: [basic.go](../basic.go).
+구현: [basic.go](../internal/parser/basic.go).
 
 ## 6. Document 메서드 — 7개
 
@@ -138,7 +138,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 여러 `/Contents` 스트림을 연결한 소스는 `Origin.Inputs`에 입력 범위를 순서대로 기록합니다. 해당 소스의 Span은 연결된 바이트에 대한 위치입니다. 단일 필터 변환의 `Origin.Input`과 구분해서 추적합니다.
 
-`Document`의 공개 별칭은 [types.go](../types.go)에 있습니다. 메서드 구현은 [internal/document/document.go](../internal/document/document.go), [objects.go](../internal/document/objects.go), [filters.go](../internal/document/filters.go)에 있습니다.
+`Document`의 공개 별칭은 [types.go](../types.go)에 있습니다. 메서드 구현은 [internal/common/document/document.go](../internal/common/document/document.go), [objects.go](../internal/common/document/objects.go), [filters.go](../internal/common/document/filters.go)에 있습니다.
 
 ## 7. Dictionary 메서드 — 2개
 
@@ -151,7 +151,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 키 누락은 공개 오류 변수 `gopd.ErrMissingKey`를 감싼 오류로 반환하므로 `errors.Is(err, gopd.ErrMissingKey)`로 확인할 수 있습니다. 중복 키 오류와는 구분됩니다.
 
-공개 함수: [api.go](../api.go). 사전 메서드와 변환 구현: [internal/pdfmodel/object.go](../internal/pdfmodel/object.go).
+공개 함수: [api.go](../api.go). 사전 메서드와 변환 구현: [internal/common/pdfmodel/object.go](../internal/common/pdfmodel/object.go).
 
 ## 8. Matrix 메서드 — 2개
 
@@ -164,7 +164,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 `m.Mul(n).Transform(p)`는 `m.Transform(n.Transform(p))`와 같습니다. 즉 `n`을 먼저 적용하고 `m`을 적용합니다. 페이지의 `Rotate`와 `UserUnit`을 자동으로 적용하는 함수는 아닙니다.
 
-공개 함수는 [api.go](../api.go), 타입 별칭은 [types.go](../types.go), 계산 구현은 [internal/pdfmodel/geometry.go](../internal/pdfmodel/geometry.go)에 있습니다.
+공개 함수는 [api.go](../api.go), 타입 별칭은 [types.go](../types.go), 계산 구현은 [internal/common/pdfmodel/geometry.go](../internal/common/pdfmodel/geometry.go)에 있습니다.
 
 ## 공개 타입의 역할
 
@@ -172,45 +172,43 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 | 역할 | 공개 타입 | 코드 |
 | --- | --- | --- |
-| 기본 결과 | `PDF`, `Text`, `Graphic`, `PathSegment` | [basic.go](../basic.go) |
-| 상세 콘텐츠 | `DetailedPDF`, `DetailedPage`, `DetailedText`, `DetailedGraphic`, `DetailedImage`, `DetailedPathSegment`, `Glyph`, `ImageResource`, `Annotation` | [detailed_model.go](../detailed_model.go) |
-| 실행 순서·출처 | `ElementKind`, `ElementRef`, `FormCall`, `ElementSource`, `Operation` | [detailed_model.go](../detailed_model.go) |
-| 글꼴 | `FontInfo`, `Font`, `CodeSpace`, `CMap` | [basic.go](../basic.go), [fonts.go](../fonts.go), [cmap.go](../cmap.go) |
-| 스타일 | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath` | [style_types.go](../style_types.go) |
-| 좌표 | `Point`, `Rect`, `Matrix` | [types.go](../types.go), [geometry.go](../internal/pdfmodel/geometry.go) |
-| 문서·입력 제한 | `Document`, `ReadOptions`, `Limits` | [document.go](../internal/document/document.go), [read.go](../internal/document/read.go), [structure.go](../internal/pdfmodel/structure.go) |
-| PDF 값 | `Value`, `Object`, `Null`, `Boolean`, `Integer`, `Real`, `Name`, `StringForm`, `PDFString`, `Array`, `DictionaryEntry`, `Dictionary`, `ObjectID`, `Reference`, `InvalidValue` | [object.go](../internal/pdfmodel/object.go) |
-| 간접 객체 | `ObjectOrigin`, `FileObjectOrigin`, `ObjectStreamOrigin`, `IndirectObject` | [object.go](../internal/pdfmodel/object.go) |
-| 스트림 | `StreamBoundary`, `Stream` | [object.go](../internal/pdfmodel/object.go) |
-| 바이트 출처 | `SourceID`, `Position`, `Span`, `Source`, `Derivation`, `TransformKind`, `Transform` | [source.go](../internal/pdfmodel/source.go) |
-| xref | `XRefEntry`, `FreeEntry`, `InUseEntry`, `CompressedEntry`, `UnknownXRefEntry`, `XRefRecord`, `XRefRange`, `XRefForm`, `SectionID`, `XRefSection` | [structure.go](../internal/pdfmodel/structure.go) |
-| 파일 구조·진단 | `Version`, `Header`, `FileTail`, `RegionKind`, `FileRegion`, `Severity`, `Diagnostic`, `Structure` | [structure.go](../internal/pdfmodel/structure.go) |
-| 토큰 | `TokenKind`, `Token` | [token.go](../internal/pdfmodel/token.go) |
+| 기본 문서 결과 | `PDF` | [basic.go](../internal/parser/basic.go) |
+| 상세 문서·실행 순서 | `DetailedPDF`, `ElementKind`, `ElementRef` | [parser.go](../internal/parser/parser.go) |
+| 페이지 | `DetailedPage`, `ExtractedPage` | [page.go](../internal/parser/page.go) |
+| 텍스트 | `Text`, `DetailedText`, `ExtractedText`, `Glyph`, `TextPosition` | [text.go](../internal/parser/text.go) |
+| 그래픽 | `Graphic`, `PathSegment`, `DetailedGraphic`, `DetailedPathSegment`, `ExtractedGraphic` | [graphic.go](../internal/parser/graphic.go) |
+| 이미지 | `DetailedImage`, `ImageResource`, `ExtractedImage`, `ExtractedImageResource` | [image.go](../internal/parser/image.go) |
+| 주석 | `Annotation`, `ExtractedAnnotation` | [annotation.go](../internal/parser/annotation.go) |
+| 선택 추출·옵션·진단 | `ContentKind`, `ExtractOptions`, `Extraction`, `ExtractionDiagnostic` | [extract.go](../internal/parser/extract.go) |
+| 실행 명령·출처 | `FormCall`, `ElementSource`, `Operation` | [interpreter.go](../internal/parser/interpreter.go) |
+| 글꼴 | `FontInfo`, `Font`, `CodeSpace`, `CMap` | [font.go](../internal/parser/font.go), [cmap.go](../internal/parser/cmap.go) |
+| 스타일 | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath` | [style.go](../internal/parser/style.go) |
+| 좌표 | `Point`, `Rect`, `Matrix` | [types.go](../types.go), [geometry.go](../internal/common/pdfmodel/geometry.go) |
+| 문서·입력 제한 | `Document`, `ReadOptions`, `Limits` | [document.go](../internal/common/document/document.go), [read.go](../internal/common/document/read.go), [structure.go](../internal/common/pdfmodel/structure.go) |
+| PDF 값 | `Value`, `Object`, `Null`, `Boolean`, `Integer`, `Real`, `Name`, `StringForm`, `PDFString`, `Array`, `DictionaryEntry`, `Dictionary`, `ObjectID`, `Reference`, `InvalidValue` | [object.go](../internal/common/pdfmodel/object.go) |
+| 간접 객체 | `ObjectOrigin`, `FileObjectOrigin`, `ObjectStreamOrigin`, `IndirectObject` | [object.go](../internal/common/pdfmodel/object.go) |
+| 스트림 | `StreamBoundary`, `Stream` | [object.go](../internal/common/pdfmodel/object.go) |
+| 바이트 출처 | `SourceID`, `Position`, `Span`, `Source`, `Derivation`, `TransformKind`, `Transform` | [source.go](../internal/common/pdfmodel/source.go) |
+| xref | `XRefEntry`, `FreeEntry`, `InUseEntry`, `CompressedEntry`, `UnknownXRefEntry`, `XRefRecord`, `XRefRange`, `XRefForm`, `SectionID`, `XRefSection` | [structure.go](../internal/common/pdfmodel/structure.go) |
+| 파일 구조·진단 | `Version`, `Header`, `FileTail`, `RegionKind`, `FileRegion`, `Severity`, `Diagnostic`, `Structure` | [structure.go](../internal/common/pdfmodel/structure.go) |
+| 토큰 | `TokenKind`, `Token` | [token.go](../internal/common/pdfmodel/token.go) |
 
 `ElementKind`, `TokenKind`, `Severity` 등의 기존 상수와 `ErrMissingKey`도 유지합니다. 모든 타입이 완전한 PDF 규격 지원을 의미하지는 않습니다. 예를 들어 복구·복호화 등을 표현하는 타입 값이 정의되어 있어도 해당 처리가 구현되지 않은 경우가 있습니다.
 
 ## 코드 구성 기준
 
 ```text
-api.go                공개 파싱·구문·값 변환 함수
-types.go              내부 타입·상수·오류의 공개 별칭
-basic.go              기본 결과·FontInfo·Details()·기본 결과 변환
-detailed_model.go     상세 반환 타입
-style_types.go        스타일·그래픽 상태
-semantic*.go          콘텐츠 해석 세션·공통 조회·진단·자원 예산
-pages.go              페이지 트리·상속·콘텐츠 연결·주석
-content*.go           콘텐츠 구문·명령 실행·리소스·Form/Image·ExtGState
-graphics_state.go     공통 선·점선 상태 검증과 설정
-text.go               텍스트 실행·글리프·위치 계산
-fonts.go, cmap.go     글꼴·CMap 타입과 해석
-internal/document/   파일·바이트 범위·객체·xref·스트림 읽기
-internal/syntax/     토큰·객체 구문 해석
-internal/pdfmodel/   공통 모델·사전 조회·값 변환·좌표 계산
-internal/pdftest/    테스트용 PDF·스트림 생성기
-examples/gopd/      CLI 인수 처리와 표시
+api.go                       공개 함수와 내부 구현 연결
+types.go                     타입·상수·오류의 공개 별칭
+internal/parser/             콘텐츠·글꼴 해석·선택 추출·결과 모델
+internal/common/document/    파일·바이트 범위·객체·xref·스트림 읽기
+internal/common/syntax/      토큰·객체·콘텐츠 명령 구문 해석
+internal/common/pdfmodel/    공통 모델·사전 조회·값 변환·좌표 계산
+internal/common/pdftest/     테스트용 PDF·스트림 생성기
+examples/gopd/               CLI 인수 처리와 표시
 ```
 
-공개 함수는 `api.go`, 별칭은 `types.go`에서 찾습니다. 기본 응답과 변환은 `basic.go`에서 함께 읽을 수 있습니다. 파일 읽기·구문 분석 구현은 내부 패키지에 두며, CLI는 라이브러리를 호출합니다. 패키지 경계, 타입 이동의 호환성 범위, 테스트 배치는 [프로젝트 구조](project-structure.md)를 참고하세요.
+공개 함수는 `api.go`, 별칭은 `types.go`에서 찾습니다. `internal/parser`는 하나의 Go 패키지이며 텍스트·그래픽·이미지·주석의 타입과 처리를 각각 `text.go`·`graphic.go`·`image.go`·`annotation.go`에 모읍니다. 기본 문서 결과와 변환은 `basic.go`에 있습니다. 파일 읽기·구문 분석 구현은 내부 패키지에 두며, CLI는 라이브러리를 호출합니다. 패키지 경계, 타입 이동의 호환성 범위, 테스트 배치는 [프로젝트 구조](project-structure.md)를 참고하세요.
 
 ## 결과 수명과 오류 처리
 

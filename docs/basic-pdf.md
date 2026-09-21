@@ -75,7 +75,7 @@ PDF
    └─ Page, Segments[], Paint, Stroke, Fill, EvenOdd, Style
 ```
 
-실제 타입 정의는 [basic.go](../basic.go)에 있습니다.
+문서 타입과 기본 결과 변환은 [basic.go](../internal/parser/basic.go), 텍스트 타입은 [text.go](../internal/parser/text.go), 그래픽·경로 타입은 [graphic.go](../internal/parser/graphic.go), 글꼴 정보는 [font.go](../internal/parser/font.go)에 있습니다.
 
 | 정보 | 설명 |
 | --- | --- |
@@ -137,7 +137,7 @@ if len(detail.Pages) > 0 {
 | `BuildPDF(document)` | `*DetailedPDF`: 저수준 문서의 콘텐츠 해석 |
 | `ParseFile(path)`, `Parse(readerAt, size, options...)` | `*Document`: 저수준 구문·xref·객체 접근 |
 
-상세 결과에는 `Fonts`, `ImageResources`, `Annotations`, `Structure`, `Document` 및 각 요소의 글리프·명령·출처·전체 그래픽 상태가 남아 있습니다. 상세 타입은 [detailed_model.go](../detailed_model.go), 기존 상세 저장 형식은 [JSON 구조 설명](json-structure.md)을 참고하세요.
+상세 결과에는 `Fonts`, `ImageResources`, `Annotations`, `Structure`, `Document` 및 각 요소의 글리프·명령·출처·전체 그래픽 상태가 남아 있습니다. 상세 문서 타입은 [parser.go](../internal/parser/parser.go), 콘텐츠별 타입 위치는 [공개 타입의 역할](public-api.md#공개-타입의-역할), 기존 상세 저장 형식은 [JSON 구조 설명](json-structure.md)을 참고하세요.
 
 이전에 상세 결과를 `*PDF`로 선언한 코드는 `*DetailedPDF`로 바꿉니다. 상세 요소를 직접 선언했다면 `DetailedPage`, `DetailedText`, `DetailedGraphic`, `DetailedImage`, `DetailedPathSegment`를 사용합니다. 기존 `Open`·`Read`·`BuildPDF`의 상세 동작은 유지합니다.
 

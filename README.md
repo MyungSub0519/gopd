@@ -70,3 +70,10 @@ These goals are partially implemented. Interpretation of complex color spaces, t
 See [resource limits and interpretation](docs/resource-limits.md),
 [contributing](CONTRIBUTING.md), and the [release checklist](docs/release-checklist.md)
 for the current processing contract and remaining release work.
+
+## Project structure
+
+The root package exposes the public API. Content interpretation, extraction, and
+result models live in `internal/parser`. Shared PDF models, syntax, document
+reading, and test fixtures live in subpackages of `internal/common`. See the
+[project structure guide](docs/project-structure.md) for file roles and dependencies.

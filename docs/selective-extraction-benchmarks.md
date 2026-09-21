@@ -3,10 +3,10 @@
 Measured on 2026-09-17 using Go 1.25.4, Windows amd64, Intel Core Ultra 7 155H.
 The input contains 2,000 text-show operations (20 characters each) and 2,000
 rectangle painting operations on one page. See `BenchmarkExtractDense` in
-[extract_bench_test.go](../extract_bench_test.go).
+[extract_test.go](../internal/parser/extract_test.go).
 
 ```powershell
-go test . -run '^$' -bench '^BenchmarkExtractDense$' -benchmem -benchtime=200ms -count=6
+go test ./internal/parser -run '^$' -bench '^BenchmarkExtractDense$' -benchmem -benchtime=200ms -count=6
 ```
 
 | Mode | Median allocated bytes/op | Median allocations/op | JSON bytes |

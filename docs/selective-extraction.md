@@ -91,7 +91,7 @@ Extraction
 
 `json.Marshal(result)`나 `json.NewEncoder(writer).Encode(result)`로 저장할 수 있습니다. 미선택 종류, 비어 있는 목록, 비활성 상세 필드는 `omitempty`에 따라 생략됩니다. 따라서 JSON에서 `Images`가 없다는 사실만으로 미선택인지 해당 페이지에 이미지가 없는지 구분할 수 없습니다. `result.Content & gopd.ContentImages != 0`으로 선택 여부를 확인합니다. 빈 문서의 `Pages`는 `[]`입니다.
 
-각 종류의 요소는 그 종류 안에서 콘텐츠 실행 순서를 유지합니다. 기본 `PDF`의 `Texts[page][element]` 대신 이 API는 `result.Pages[page].Texts[element]`를 사용합니다. 반환 타입 정의는 [extract_model.go](../extract_model.go)를 참고하세요.
+각 종류의 요소는 그 종류 안에서 콘텐츠 실행 순서를 유지합니다. 기본 `PDF`의 `Texts[page][element]` 대신 이 API는 `result.Pages[page].Texts[element]`를 사용합니다. 문서 결과·옵션·진단은 [extract.go](../internal/parser/extract.go), 페이지 결과는 [page.go](../internal/parser/page.go)에 정의합니다. 요소별 결과 타입과 출력 코드는 [text.go](../internal/parser/text.go), [graphic.go](../internal/parser/graphic.go), [image.go](../internal/parser/image.go), [annotation.go](../internal/parser/annotation.go)에 있습니다.
 
 ## 원본 바이트와 명령 확인
 
