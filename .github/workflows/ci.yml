@@ -77,17 +77,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: ./internal/syntax
+          - package: ./internal/common/syntax
             target: FuzzLex
-          - package: ./internal/syntax
+          - package: ./internal/common/syntax
             target: FuzzParseObject
-          - package: ./internal/document
+          - package: ./internal/common/document
             target: FuzzDocument
-          - package: ./internal/document
+          - package: ./internal/common/document
             target: FuzzDecodeFilters
-          - package: .
+          - package: ./internal/parser
             target: FuzzToUnicodeBounded
-          - package: .
+          - package: ./internal/parser
             target: FuzzBuildPDF
     steps:
       - uses: actions/checkout@v7

@@ -512,9 +512,11 @@ Go 모델의 `ObjectStreamOrigin`은 `Container`, `ContainerSpan`, `Index`, `Hea
 
 ## 관련 코드
 
-- [기본 콘텐츠 타입](../basic.go)
-- [상세 콘텐츠 타입](../detailed_model.go)
-- [파일 구조와 진단 타입](../internal/pdfmodel/structure.go)
-- [PDF 값·스트림·간접 객체와 출처](../internal/pdfmodel/object.go)
-- [바이트 소스와 위치 타입](../internal/pdfmodel/source.go)
-- [글꼴 타입과 해석](../fonts.go), [CMap 타입과 문자 매핑](../cmap.go)
+- [기본 문서 타입과 변환](../internal/parser/basic.go), [상세 문서 타입](../internal/parser/parser.go), [페이지 타입과 해석](../internal/parser/page.go)
+- [텍스트 타입과 해석](../internal/parser/text.go), [그래픽 타입과 해석](../internal/parser/graphic.go)
+- [이미지 타입과 해석](../internal/parser/image.go), [주석 타입과 해석](../internal/parser/annotation.go)
+- [실행 명령·출처와 공통 실행기](../internal/parser/interpreter.go), [스타일 타입과 변환](../internal/parser/style.go)
+- [파일 구조와 진단 타입](../internal/common/pdfmodel/structure.go)
+- [PDF 값·스트림·간접 객체와 출처](../internal/common/pdfmodel/object.go)
+- [바이트 소스와 위치 타입](../internal/common/pdfmodel/source.go)
+- [글꼴 타입과 해석](../internal/parser/font.go), [CMap 타입과 문자 매핑](../internal/parser/cmap.go)

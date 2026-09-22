@@ -5,8 +5,8 @@ GoPD snapshots the input and keeps parsed objects and decoded sources in memory.
 they are not an exact process-memory limit. Object, token and map overhead,
 temporary decoding buffers and the input snapshot consume additional memory.
 
-`Extract` and `ExtractReader` generate selected results directly. Without
-`Provenance`, their returned `Extraction` does not retain a `Document`, full
+`ParseFile` and `ParseReader` generate selected results directly. Without
+`Provenance`, their returned `Result` does not retain a `Document`, full
 font/CMap data, or a detailed result. The input snapshot and decoded caches still
 exist during the call. With `Provenance`, the result retains its `Document` for
 source access; that field is excluded from JSON. See [selective extraction](selective-extraction.md).
@@ -14,7 +14,7 @@ source access; that field is excluded from JSON. See [selective extraction](sele
 Use the low-level entry point to set limits before interpreting content:
 
 ```go
-doc, err := gopd.Parse(readerAt, size, gopd.ReadOptions{
+doc, err := gopd.ReadDocument(readerAt, size, gopd.ReadOptions{
     MaxFileBytes: 32 << 20,
     Limits: gopd.Limits{
         MaxObjects:         100_000,
@@ -42,7 +42,7 @@ The examples are application choices, not universal recommended capacities.
 The same limits are available directly on selective extraction:
 
 ```go
-result, err := gopd.ExtractReader(readerAt, size, gopd.ExtractOptions{
+result, err := gopd.ParseReader(readerAt, size, gopd.ParseOptions{
     Content: gopd.ContentText | gopd.ContentImages,
     ReadOptions: gopd.ReadOptions{
         MaxFileBytes: 32 << 20,
@@ -78,7 +78,7 @@ Dictionary keys are not counted as separate `MaxValues` values. Each dictionary
 entry's value is counted. Cached indirect-object loads do not charge values
 again; unsuccessful parsing attempts do charge work already completed.
 
-Semantic interpretation means one `BuildPDF` call or one `Extract`/`ExtractReader`
+Semantic interpretation means one `BuildPDF` call or one `ParseFile`/`ParseReader`
 call. The value budget charges numeric arrays expanded from resources on each
 use. It also charges dash entries and stroke/fill color components for each
 retained text, graphic or image occurrence, even when detailed results share

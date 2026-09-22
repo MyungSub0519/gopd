@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/MyungSub0519/gopd/internal/pdftest"
+	"github.com/MyungSub0519/gopd/internal/common/pdftest"
 )
 
 func main() {

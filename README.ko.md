@@ -14,7 +14,7 @@ Go 네이티브로 작성된 프로젝트 중에는 상업적으로 사용되는
 
 ## 필요한 콘텐츠만 추출하기
 
-`Extract`는 요청한 종류의 결과만 생성합니다. 빈 옵션은 Unicode 텍스트와 기본 글꼴 정보를 페이지별로 반환합니다.
+`ParseFile`은 요청한 종류의 결과만 생성합니다. 빈 옵션은 Unicode 텍스트와 기본 글꼴 정보를 페이지별로 반환합니다.
 
 ```go
 package main
@@ -27,7 +27,7 @@ import (
 )
 
 func main() {
-    result, err := gopd.Extract("testdata/synthetic.pdf", gopd.ExtractOptions{})
+    result, err := gopd.ParseFile("testdata/synthetic.pdf", gopd.ParseOptions{})
     if err != nil {
         log.Fatal(err)
     }
@@ -39,7 +39,7 @@ func main() {
 }
 ```
 
-`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. `Positions`, `Styles`, `Glyphs`, `Provenance`로 상세 정보를 선택합니다. `Glyphs`는 텍스트 선택이 필요하며 위치 계산도 활성화합니다. `ExtractReader`는 `io.ReaderAt`과 입력 크기를 받습니다.
+`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. `Positions`, `Styles`, `Glyphs`, `Provenance`로 상세 정보를 선택합니다. `Glyphs`는 텍스트 선택이 필요하며 위치 계산도 활성화합니다. `ParseReader`는 `io.ReaderAt`과 입력 크기를 받습니다.
 
 선택한 종류는 콘텐츠 순회기를 공유합니다. 미선택 결과는 생성하지 않으며 `Provenance`를 켰을 때만 결과가 원본 스냅샷을 보관합니다. 호출 중에는 입력과 디코딩 캐시가 메모리에 남습니다. 스트리밍 파일 읽기나 건너뛴 콘텐츠의 전체 유효성 검사를 보장하지 않습니다.
 
@@ -60,3 +60,7 @@ GoPD는 PDF에 담긴 콘텐츠와 그 콘텐츠를 구성하는 내부 구조�
 
 현재 처리 범위와 제한 설정은 [리소스 제한 문서](docs/resource-limits.md)를 참고하세요.
 [기여 안내](CONTRIBUTING.md)와 [공개 전 점검 항목](docs/release-checklist.md)도 제공합니다.
+
+## 프로젝트 구조
+
+루트 패키지는 공개 API와 타입 별칭을 제공합니다. 콘텐츠 해석·선택 추출·결과 모델은 `internal/parser`에, 공통 PDF 모델·구문 분석·문서 읽기·테스트 입력 생성기는 `internal/common`의 하위 패키지에 있습니다. 파일별 역할과 의존 방향은 [프로젝트 구조 안내](docs/project-structure.md)를 참고하세요.

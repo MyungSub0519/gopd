@@ -12,9 +12,9 @@ There were also native Go projects used commercially, but I was not happy with t
 
 This project draws on MuPDF as a reference.
 
-## Extract selected content
+## Parse selected content
 
-Use `Extract` to generate only the content you need. Zero options return Unicode
+Use `ParseFile` to generate only the content you need. Zero options return Unicode
 text and compact font metadata, grouped by page.
 
 ```go
@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-    result, err := gopd.Extract("testdata/synthetic.pdf", gopd.ExtractOptions{})
+    result, err := gopd.ParseFile("testdata/synthetic.pdf", gopd.ParseOptions{})
     if err != nil {
         log.Fatal(err)
     }
@@ -43,7 +43,7 @@ func main() {
 Combine `ContentText`, `ContentGraphics`, `ContentImages`, and
 `ContentAnnotations` with `|`, or select `ContentAll`. `Positions`, `Styles`,
 `Glyphs`, and `Provenance` control optional details; `Glyphs` requires text and
-enables positions. `ExtractReader` accepts an `io.ReaderAt` and input size.
+enables positions. `ParseReader` accepts an `io.ReaderAt` and input size.
 
 Selected kinds share the content interpreter. Unrequested results are not
 constructed, and the result retains the input snapshot only with `Provenance`.
@@ -70,3 +70,10 @@ These goals are partially implemented. Interpretation of complex color spaces, t
 See [resource limits and interpretation](docs/resource-limits.md),
 [contributing](CONTRIBUTING.md), and the [release checklist](docs/release-checklist.md)
 for the current processing contract and remaining release work.
+
+## Project structure
+
+The root package exposes the public API. Content interpretation, extraction, and
+result models live in `internal/parser`. Shared PDF models, syntax, document
+reading, and test fixtures live in subpackages of `internal/common`. See the
+[project structure guide](docs/project-structure.md) for file roles and dependencies.

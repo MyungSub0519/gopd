@@ -1,6 +1,6 @@
 # 기본 PDF API
 
-`ParsePDF`는 상세 분석 결과를 함께 보관하는 기존 API입니다. 콘텐츠 종류와 상세 수준을 선택해 필요한 결과만 생성하려면 [선택 추출 API](selective-extraction.md)의 `Extract` 또는 `ExtractReader`를 사용합니다. 기존 `ParsePDF`와 `Details()` 동작은 유지됩니다.
+`ParsePDF`는 상세 분석 결과를 함께 보관하는 기존 API입니다. 콘텐츠 종류와 상세 수준을 선택해 필요한 결과만 생성하려면 [선택 파싱 API](selective-extraction.md)의 `ParseFile` 또는 `ParseReader`를 사용합니다. 기존 `ParsePDF`와 `Details()` 동작은 유지됩니다.
 
 ## 파일 경로 하나로 파싱하기
 
@@ -75,7 +75,7 @@ PDF
    └─ Page, Segments[], Paint, Stroke, Fill, EvenOdd, Style
 ```
 
-실제 타입 정의는 [basic.go](../basic.go)에 있습니다.
+문서 타입과 기본 결과 변환은 [basic.go](../internal/parser/basic.go), 텍스트 타입은 [text.go](../internal/parser/text.go), 그래픽·경로 타입은 [graphic.go](../internal/parser/graphic.go), 글꼴 정보는 [font.go](../internal/parser/font.go)에 있습니다.
 
 | 정보 | 설명 |
 | --- | --- |
@@ -129,15 +129,15 @@ if len(detail.Pages) > 0 {
 
 | 진입점 | 반환값과 역할 |
 | --- | --- |
-| `Extract(path, options)`, `ExtractReader(readerAt, size, options)` | `*Extraction`: 종류·상세 수준을 선택한 페이지별 결과 |
+| `ParseFile(path, options)`, `ParseReader(readerAt, size, options)` | `*Result`: 종류·상세 수준을 선택한 페이지별 결과 |
 | `ParsePDF(path)` | `*PDF`: 페이지별 텍스트·그래픽 |
 | `PDF.Details()` | `*DetailedPDF`: 같은 파싱의 상세 결과 |
 | `Open(path)` | `*DetailedPDF`: 파일에서 바로 상세 분석 |
 | `Read(readerAt, size)` | `*DetailedPDF`: reader에서 상세 분석 |
 | `BuildPDF(document)` | `*DetailedPDF`: 저수준 문서의 콘텐츠 해석 |
-| `ParseFile(path)`, `Parse(readerAt, size, options...)` | `*Document`: 저수준 구문·xref·객체 접근 |
+| `LoadDocument(path)`, `ReadDocument(readerAt, size, options...)` | `*Document`: 저수준 구문·xref·객체 접근 |
 
-상세 결과에는 `Fonts`, `ImageResources`, `Annotations`, `Structure`, `Document` 및 각 요소의 글리프·명령·출처·전체 그래픽 상태가 남아 있습니다. 상세 타입은 [detailed_model.go](../detailed_model.go), 기존 상세 저장 형식은 [JSON 구조 설명](json-structure.md)을 참고하세요.
+상세 결과에는 `Fonts`, `ImageResources`, `Annotations`, `Structure`, `Document` 및 각 요소의 글리프·명령·출처·전체 그래픽 상태가 남아 있습니다. 상세 문서 타입은 [parser.go](../internal/parser/parser.go), 콘텐츠별 타입 위치는 [공개 타입의 역할](public-api.md#공개-타입의-역할), 기존 상세 저장 형식은 [JSON 구조 설명](json-structure.md)을 참고하세요.
 
 이전에 상세 결과를 `*PDF`로 선언한 코드는 `*DetailedPDF`로 바꿉니다. 상세 요소를 직접 선언했다면 `DetailedPage`, `DetailedText`, `DetailedGraphic`, `DetailedImage`, `DetailedPathSegment`를 사용합니다. 기존 `Open`·`Read`·`BuildPDF`의 상세 동작은 유지합니다.
 
@@ -178,6 +178,6 @@ if len(detail.Pages) > 0 {
 - 미지원 효과는 오류 없이 상세 진단으로 남을 수도 있습니다. `Details().Diagnostics`와 `Details().Structure.Diagnostics`에서 원인과 바이트 출처를 확인합니다.
 - 문자 해석은 `DecodeComplete`, 위치 계산 지원 여부는 `PositionComplete`로 확인합니다. 기본 결과에 글리프별 좌표 전체가 포함된다는 의미는 아닙니다.
 - 기본 스타일은 모든 렌더링 정보를 담지 않습니다. 전체 클리핑 경로·좌표 변환 상태 등은 상세 정보에 남아 있습니다.
-- 현재 `ParsePDF`는 상세 분석을 먼저 수행하고 기본 결과를 생성하며 상세 결과도 보관합니다. 필요한 결과만 직접 생성하려면 `Extract`를 사용합니다. 선택 추출도 호출 중 입력과 디코딩 캐시를 보관하므로 전체 프로세스 메모리 상한을 보장하지 않습니다.
+- 현재 `ParsePDF`는 상세 분석을 먼저 수행하고 기본 결과를 생성하며 상세 결과도 보관합니다. 필요한 결과만 직접 생성하려면 `ParseFile`을 사용합니다. 선택 파싱도 호출 중 입력과 디코딩 캐시를 보관하므로 전체 프로세스 메모리 상한을 보장하지 않습니다.
 - `Details()`는 이미 보관한 결과를 반환하므로 파일을 다시 읽지 않습니다. 반환 객체를 닫을 필요는 없습니다.
 - 결과는 읽기 전용으로 취급합니다. 기본 슬라이스 데이터는 상세 슬라이스와 분리하지만 같은 기본 리소스를 가리키는 포인터는 공유합니다. 상세 `Document`의 지연 메서드는 동시 호출을 지원하지 않습니다.

@@ -4,13 +4,32 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/MyungSub0519/gopd"
-	"github.com/MyungSub0519/gopd/internal/pdftest"
+	"github.com/MyungSub0519/gopd/internal/common/pdftest"
 )
+
+func ExampleParseFile() {
+	result, err := gopd.ParseFile("testdata/synthetic.pdf", gopd.ParseOptions{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	for _, page := range result.Pages {
+		for _, text := range page.Texts {
+			fmt.Println(text.Unicode)
+		}
+	}
+	// Output:
+	// GoPD synthetic fixture
+	// Alpha beta 123
+	// Page two: shared resources
+	// Reusable form
+}
 
 const publicContent = "0 0 m 10 10 l S BT /F 12 Tf 1 0 0 1 20 30 Tm (A) Tj ET"
 
@@ -78,8 +97,10 @@ func TestPublicDocumentObjectsAndStreams(t *testing.T) {
 	path, data := publicFixture(t)
 	options := gopd.ReadOptions{MaxFileBytes: int64(len(data))}
 	for _, parse := range []func() (*gopd.Document, error){
-		func() (*gopd.Document, error) { return gopd.ParseFile(path, options) },
-		func() (*gopd.Document, error) { return gopd.Parse(bytes.NewReader(data), int64(len(data)), options) },
+		func() (*gopd.Document, error) { return gopd.LoadDocument(path, options) },
+		func() (*gopd.Document, error) {
+			return gopd.ReadDocument(bytes.NewReader(data), int64(len(data)), options)
+		},
 	} {
 		doc, err := parse()
 		if err != nil {
@@ -167,7 +188,7 @@ func TestPublicErrorsAndReadLimits(t *testing.T) {
 	if p, err := gopd.ParsePDF(filepath.Join(t.TempDir(), "missing.pdf")); p != nil || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("file error = %v", err)
 	}
-	if _, err := gopd.Parse(bytes.NewReader(data), int64(len(data)), gopd.ReadOptions{MaxFileBytes: int64(len(data) - 1)}); err == nil {
+	if _, err := gopd.ReadDocument(bytes.NewReader(data), int64(len(data)), gopd.ReadOptions{MaxFileBytes: int64(len(data) - 1)}); err == nil {
 		t.Fatal("public read limits were not applied")
 	}
 	if _, err := gopd.Read(bytes.NewReader([]byte("invalid")), 7); err == nil {
@@ -175,5 +196,58 @@ func TestPublicErrorsAndReadLimits(t *testing.T) {
 	}
 	if _, err := gopd.Int(gopd.Object{Value: gopd.Name("Name")}); err == nil {
 		t.Fatal("integer conversion accepted a name")
+	}
+}
+
+func TestPublicParseEntryPoints(t *testing.T) {
+	path, data := publicFixture(t)
+	entryPoints := []struct {
+		name  string
+		parse func(gopd.ParseOptions) (*gopd.Result, error)
+	}{
+		{"file", func(options gopd.ParseOptions) (*gopd.Result, error) {
+			return gopd.ParseFile(path, options)
+		}},
+		{"reader", func(options gopd.ParseOptions) (*gopd.Result, error) {
+			return gopd.ParseReader(bytes.NewReader(data), int64(len(data)), options)
+		}},
+	}
+	for _, entry := range entryPoints {
+		t.Run(entry.name, func(t *testing.T) {
+			basic, err := entry.parse(gopd.ParseOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if basic.Content != gopd.ContentText || len(basic.Pages) != 1 || len(basic.Pages[0].Texts) != 1 {
+				t.Fatal("default extraction lost page text")
+			}
+			text := basic.Pages[0].Texts[0]
+			if text.Unicode != "A" || text.Position != nil || text.Style != nil || basic.Document != nil || len(basic.Pages[0].Graphics) != 0 {
+				t.Fatal("default extraction retained unrequested content or details")
+			}
+
+			detailed, err := entry.parse(gopd.ParseOptions{
+				Content: gopd.ContentAll, Glyphs: true, Styles: true, Provenance: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detailed.Content != gopd.ContentAll || detailed.Document == nil || len(detailed.Pages) != 1 || len(detailed.Pages[0].Texts) != 1 || len(detailed.Pages[0].Graphics) != 1 {
+				t.Fatal("extraction options lost content or provenance")
+			}
+			text = detailed.Pages[0].Texts[0]
+			if text.Position == nil || text.Position.Matrix[4] != 20 || text.Position.Matrix[5] != 30 || len(text.Glyphs) != 1 || text.Style == nil || text.Source == nil {
+				t.Fatal("extraction options lost text details")
+			}
+
+			if _, err := entry.parse(gopd.ParseOptions{Content: gopd.ContentImages, Glyphs: true}); err == nil {
+				t.Fatal("glyph extraction without text must fail")
+			}
+			if _, err := entry.parse(gopd.ParseOptions{
+				ReadOptions: gopd.ReadOptions{MaxFileBytes: int64(len(data) - 1)},
+			}); !errors.Is(err, gopd.ErrLimit) {
+				t.Fatalf("extraction input limit = %v", err)
+			}
+		})
 	}
 }
