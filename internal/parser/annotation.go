@@ -17,7 +17,7 @@ type ExtractedAnnotation struct {
 }
 
 func (b *semanticBuilder) emitAnnotation(annotation Annotation) {
-	if b.extract == nil {
+	if b.result == nil {
 		index := len(b.pdf.Annotations)
 		b.pdf.Annotations = append(b.pdf.Annotations, annotation)
 		b.pdf.Pages[annotation.Page].Annotations = append(b.pdf.Pages[annotation.Page].Annotations, index)
@@ -28,7 +28,7 @@ func (b *semanticBuilder) emitAnnotation(annotation Annotation) {
 		span := annotation.Object.Span
 		output.Source = &span
 	}
-	page := &b.extract.Pages[annotation.Page]
+	page := &b.result.Pages[annotation.Page]
 	page.Annotations = append(page.Annotations, output)
 }
 

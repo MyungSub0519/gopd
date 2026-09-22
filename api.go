@@ -36,16 +36,16 @@ func BuildPDF(d *Document) (*DetailedPDF, error) {
 	return parser.BuildPDF(d)
 }
 
-// ParseFile snapshots a file and prepares low-level object access. It closes
+// LoadDocument snapshots a file and prepares low-level object access. It closes
 // the file before returning. At most one ReadOptions value may be supplied;
 // a structural error can return a partial Document together with the error.
-func ParseFile(path string, options ...ReadOptions) (*Document, error) {
-	return document.ParseFile(path, options...)
+func LoadDocument(path string, options ...ReadOptions) (*Document, error) {
+	return document.Load(path, options...)
 }
 
-// Parse snapshots r; it never closes a caller-owned ReaderAt.
-func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
-	return document.Parse(r, size, options...)
+// ReadDocument snapshots r; it never closes a caller-owned ReaderAt.
+func ReadDocument(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
+	return document.Read(r, size, options...)
 }
 
 // Lex scans one complete byte range, preserving whitespace and comments as
@@ -89,16 +89,16 @@ func IdentityMatrix() Matrix {
 	return pdfmodel.IdentityMatrix()
 }
 
-// Extract snapshots a file and directly emits selected content. The file is
-// closed before return. A semantic error can accompany a partial Extraction;
+// ParseFile snapshots a file and directly emits selected content. The file is
+// closed before return. A semantic error can accompany a partial Result;
 // callers must check err even when the result is non-nil.
-func Extract(path string, options ExtractOptions) (*Extraction, error) {
-	return parser.Extract(path, options)
+func ParseFile(path string, options ParseOptions) (*Result, error) {
+	return parser.ParseFile(path, options)
 }
 
-// ExtractReader takes one bounded input snapshot and never closes r. Content
+// ParseReader takes one bounded input snapshot and never closes r. Content
 // kinds share one interpreter; reused Forms still execute under each caller's
 // state. This API does not promise bounded total process memory or streaming I/O.
-func ExtractReader(r io.ReaderAt, size int64, options ExtractOptions) (*Extraction, error) {
-	return parser.ExtractReader(r, size, options)
+func ParseReader(r io.ReaderAt, size int64, options ParseOptions) (*Result, error) {
+	return parser.ParseReader(r, size, options)
 }

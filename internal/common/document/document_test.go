@@ -84,7 +84,7 @@ func makeTestPDF(objects []string, trailer string) []byte {
 
 func parseTestPDF(t *testing.T, data []byte) *Document {
 	t.Helper()
-	d, err := Parse(bytes.NewReader(data), int64(len(data)))
+	d, err := Read(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,19 +127,19 @@ func TestParseReaderAtErrorContract(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := &controlledReaderAt{data: test.data, err: test.readErr}
-			doc, err := Parse(reader, int64(len(data)))
+			doc, err := Read(reader, int64(len(data)))
 			if !errors.Is(err, test.wantErr) || (doc == nil) != (test.wantErr != nil) {
 				t.Fatalf("result present=%t, error=%v; want error=%v", doc != nil, err, test.wantErr)
 			}
 			if reader.closed {
-				t.Fatal("Parse closed the caller-owned reader")
+				t.Fatal("Read closed the caller-owned reader")
 			}
 		})
 	}
 }
 
 func TestParseRejectsInvalidInputBeforeReading(t *testing.T) {
-	if doc, err := Parse(nil, 1); doc != nil || err == nil {
+	if doc, err := Read(nil, 1); doc != nil || err == nil {
 		t.Fatal("nil reader must be rejected")
 	}
 	for _, test := range []struct {
@@ -155,7 +155,7 @@ func TestParseRejectsInvalidInputBeforeReading(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := &controlledReaderAt{}
-			if doc, err := Parse(reader, test.size, test.options...); doc != nil || err == nil {
+			if doc, err := Read(reader, test.size, test.options...); doc != nil || err == nil {
 				t.Fatal("invalid input must be rejected")
 			}
 			if reader.calls != 0 {
@@ -196,7 +196,7 @@ func TestDocumentBytesCopiesAndValidatesRanges(t *testing.T) {
 
 func TestParseStructuralFailureReturnsPartialDocument(t *testing.T) {
 	data := []byte("%PDF-1.7\n")
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)))
+	doc, err := Read(bytes.NewReader(data), int64(len(data)))
 	if err == nil || doc == nil || doc.Structure.Header == nil {
 		t.Fatal("missing xref must retain the parsed header and an error")
 	}
@@ -270,7 +270,7 @@ func TestDocumentRejectsGenerationMismatchAndXRefCycle(t *testing.T) {
 	b.Write(base)
 	off := b.Len()
 	fmt.Fprintf(&b, "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 2 /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", off, off)
-	if _, err := Parse(bytes.NewReader(b.Bytes()), int64(b.Len())); err == nil {
+	if _, err := Read(bytes.NewReader(b.Bytes()), int64(b.Len())); err == nil {
 		t.Fatal("xref cycle accepted")
 	}
 }
@@ -314,11 +314,11 @@ func TestDocumentReadsXRefAndObjectStreams(t *testing.T) {
 }
 
 func TestDocumentRejectsInvalidBoundsAndHugeCounts(t *testing.T) {
-	if _, err := Parse(strings.NewReader("%PDF"), -1); err == nil {
+	if _, err := Read(strings.NewReader("%PDF"), -1); err == nil {
 		t.Fatal("negative size accepted")
 	}
 	data := []byte("%PDF-1.7\nxref\n0 4294967295\ntrailer\n<< /Size 4294967295 >>\nstartxref\n9\n%%EOF\n")
-	if _, err := Parse(bytes.NewReader(data), int64(len(data))); err == nil {
+	if _, err := Read(bytes.NewReader(data), int64(len(data))); err == nil {
 		t.Fatal("huge xref accepted")
 	}
 	d := parseTestPDF(t, makeTestPDF([]string{"<< /Type /Catalog >>"}, ""))
@@ -337,7 +337,7 @@ func FuzzDocument(f *testing.F) {
 		if len(data) > 65536 {
 			t.Skip()
 		}
-		d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{MaxFileBytes: 65536, Limits: pdfmodel.Limits{MaxDepth: 32, MaxObjects: 128, MaxXRefSections: 16, MaxDecodedBytes: 65536}})
+		d, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{MaxFileBytes: 65536, Limits: pdfmodel.Limits{MaxDepth: 32, MaxObjects: 128, MaxXRefSections: 16, MaxDecodedBytes: 65536}})
 		if err != nil {
 			return
 		}
@@ -394,7 +394,7 @@ func TestDocumentRejectsFalseStreamBoundary(t *testing.T) {
 
 func TestDocumentEmptyXRefRangesNeedBudget(t *testing.T) {
 	data := []byte("%PDF-1.7\nxref\n" + strings.Repeat("0 0\n", 10000) + "trailer\n<< /Size 0 >>\nstartxref\n9\n%%EOF\n")
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 2}})
+	d, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 2}})
 	if err == nil {
 		t.Fatalf("retained %d xref ranges from %d bytes despite MaxObjects=2", len(d.Structure.XRefs[0].Ranges), len(data))
 	}
@@ -414,7 +414,7 @@ func TestDocumentHistoricalXRefRecordsNeedBudget(t *testing.T) {
 		previous = here
 	}
 	fmt.Fprintf(&file, "startxref\n%d\n%%%%EOF\n", previous)
-	d, err := Parse(bytes.NewReader(file.Bytes()), int64(file.Len()), ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 8}})
+	d, err := Read(bytes.NewReader(file.Bytes()), int64(file.Len()), ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 8}})
 	if err == nil {
 		total := 0
 		for _, section := range d.Structure.XRefs {
@@ -470,10 +470,10 @@ func TestXRefConfiguredLimitsAreClassifiable(t *testing.T) {
 		{"hybrid sections", hybrid.Bytes(), pdfmodel.Limits{MaxXRefSections: 1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := Parse(bytes.NewReader(test.data), int64(len(test.data))); err != nil {
+			if _, err := Read(bytes.NewReader(test.data), int64(len(test.data))); err != nil {
 				t.Fatalf("fixture without limit: %v", err)
 			}
-			_, err := Parse(bytes.NewReader(test.data), int64(len(test.data)), ReadOptions{Limits: test.limits})
+			_, err := Read(bytes.NewReader(test.data), int64(len(test.data)), ReadOptions{Limits: test.limits})
 			if !errors.Is(err, pdfmodel.ErrLimit) {
 				t.Fatalf("configured xref budget error = %v", err)
 			}
@@ -489,7 +489,7 @@ func TestMalformedXRefIsNotAConfiguredLimit(t *testing.T) {
 		[]byte("%PDF-1.7\nxref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 /XRefStm 9 >>\nstartxref\n9\n%%EOF\n"),
 		stream,
 	} {
-		_, err := Parse(bytes.NewReader(data), int64(len(data)))
+		_, err := Read(bytes.NewReader(data), int64(len(data)))
 		if err == nil || errors.Is(err, pdfmodel.ErrLimit) {
 			t.Fatalf("malformed xref error = %v", err)
 		}
@@ -641,7 +641,7 @@ func BenchmarkLoadObjectRegions(b *testing.B) {
 			b.Run(fmt.Sprintf("objects=%d/reverse=%v", count, reverse), func(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
-					doc, err := Parse(bytes.NewReader(data), int64(len(data)))
+					doc, err := Read(bytes.NewReader(data), int64(len(data)))
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -662,7 +662,7 @@ func BenchmarkLoadObjectRegions(b *testing.B) {
 
 func TestFileBudgetErrorIsClassifiable(t *testing.T) {
 	r := &controlledReaderAt{}
-	_, err := Parse(r, 2, ReadOptions{MaxFileBytes: 1})
+	_, err := Read(r, 2, ReadOptions{MaxFileBytes: 1})
 	if !errors.Is(err, pdfmodel.ErrLimit) || r.calls != 0 {
 		t.Fatalf("expected classified limit before reading, got %v, calls=%d", err, r.calls)
 	}
@@ -673,7 +673,7 @@ func TestParseRejectsNegativeResourceLimitsBeforeReading(t *testing.T) {
 		{MaxValues: -1}, {MaxContentBytes: -1}, {MaxSemanticObjects: -1}, {MaxRegionWork: -1},
 	} {
 		r := &controlledReaderAt{}
-		if _, err := Parse(r, 1, ReadOptions{Limits: limits}); err == nil || r.calls != 0 {
+		if _, err := Read(r, 1, ReadOptions{Limits: limits}); err == nil || r.calls != 0 {
 			t.Fatalf("limits=%+v err=%v reader calls=%d", limits, err, r.calls)
 		}
 	}
@@ -681,7 +681,7 @@ func TestParseRejectsNegativeResourceLimitsBeforeReading(t *testing.T) {
 
 func TestDocumentCumulativeDirectValueBudget(t *testing.T) {
 	data := makeTestPDF([]string{"[1 2]", "[3 4]", "[5 6]"}, "")
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxValues: 9}})
+	d, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxValues: 9}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,7 +754,7 @@ func TestXRefOptionalDirectNull(t *testing.T) {
 						data = xrefStreamFile(map[int]string{1: "<< /Type /Catalog >>", 2: "null", 3: "null"}, nil, 4)
 						data = bytes.Replace(data, []byte("/W ["), []byte(entry+" /W ["), 1)
 					}
-					doc, err := Parse(bytes.NewReader(data), int64(len(data)))
+					doc, err := Read(bytes.NewReader(data), int64(len(data)))
 					if tc.wantError {
 						if err == nil {
 							t.Fatal("invalid bootstrap entry accepted")

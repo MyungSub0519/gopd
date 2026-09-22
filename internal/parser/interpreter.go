@@ -87,7 +87,7 @@ func (c *contentInterpreter) interpretSource(source Source) error {
 	if err != nil {
 		return err
 	}
-	if c.b.extract != nil {
+	if c.b.result != nil {
 		return c.interpretSelected(data, source.ID)
 	}
 	tokens, err := Lex(data, source.ID, 0)
@@ -325,7 +325,7 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		}
 		return c.xobject(name, op, index)
 	case "BI", "ID", "EI":
-		if c.b.extract != nil && !c.b.wantProvenance() {
+		if c.b.result != nil && !c.b.wantProvenance() {
 			return fmt.Errorf("inline image content is unsupported")
 		}
 		return fmt.Errorf("inline image content is unsupported; original content source is retained")

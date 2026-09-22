@@ -16,10 +16,10 @@ const (
 	ContentAll = ContentText | ContentGraphics | ContentImages | ContentAnnotations
 )
 
-// ExtractOptions controls work and retained output. Zero options extract Unicode
+// ParseOptions controls work and retained output. Zero options extract Unicode
 // text and compact font metadata. Glyphs requires text and enables Positions.
 // Positions use unrotated page user space, as in the detailed API.
-type ExtractOptions struct {
+type ParseOptions struct {
 	Content     ContentKind
 	Positions   bool
 	Styles      bool
@@ -28,60 +28,60 @@ type ExtractOptions struct {
 	ReadOptions ReadOptions
 }
 
-// Extraction contains only requested output, in content execution order within
+// Result contains only requested output, in content execution order within
 // each kind. It does not reconstruct reading order or render pixels. Treat
 // results as read-only. Without Provenance, no Document or DetailedPDF is retained.
-type Extraction struct {
+type Result struct {
 	Content        ContentKind
 	Pages          []ExtractedPage
 	ImageResources []ExtractedImageResource `json:",omitempty"`
-	Diagnostics    []ExtractionDiagnostic   `json:",omitempty"`
+	Diagnostics    []ResultDiagnostic       `json:",omitempty"`
 	// Document is present only with Provenance. Its lazy methods are not
 	// concurrent-safe. It owns the snapshot; no Close call is required.
 	Document *Document `json:"-"`
-	options  ExtractOptions
+	options  ParseOptions
 }
 
-// ExtractionDiagnostic reports a requested interpretation limitation. Page is
+// ResultDiagnostic reports a requested interpretation limitation. Page is
 // zero based, or -1 for a document-level issue. Span needs Provenance to resolve.
-type ExtractionDiagnostic struct {
+type ResultDiagnostic struct {
 	Severity      Severity
 	Code, Message string
 	Page          int
 	Span          *Span `json:",omitempty"`
 }
 
-// Extract snapshots a file and directly emits selected content. The file is
-// closed before return. A semantic error can accompany a partial Extraction;
+// ParseFile snapshots a file and directly emits selected content. The file is
+// closed before return. A semantic error can accompany a partial Result;
 // callers must check err even when the result is non-nil.
-func Extract(path string, options ExtractOptions) (*Extraction, error) {
-	options, err := normalizeExtractOptions(options)
+func ParseFile(path string, options ParseOptions) (*Result, error) {
+	options, err := normalizeParseOptions(options)
 	if err != nil {
 		return nil, err
 	}
-	doc, err := ParseFile(path, options.ReadOptions)
+	doc, err := LoadDocument(path, options.ReadOptions)
 	if err != nil {
 		return nil, err
 	}
-	return extractDocument(doc, options)
+	return buildResult(doc, options)
 }
 
-// ExtractReader takes one bounded input snapshot and never closes r. Content
+// ParseReader takes one bounded input snapshot and never closes r. Content
 // kinds share one interpreter; reused Forms still execute under each caller's
 // state. This API does not promise bounded total process memory or streaming I/O.
-func ExtractReader(r io.ReaderAt, size int64, options ExtractOptions) (*Extraction, error) {
-	options, err := normalizeExtractOptions(options)
+func ParseReader(r io.ReaderAt, size int64, options ParseOptions) (*Result, error) {
+	options, err := normalizeParseOptions(options)
 	if err != nil {
 		return nil, err
 	}
-	doc, err := Parse(r, size, options.ReadOptions)
+	doc, err := ReadDocument(r, size, options.ReadOptions)
 	if err != nil {
 		return nil, err
 	}
-	return extractDocument(doc, options)
+	return buildResult(doc, options)
 }
 
-func normalizeExtractOptions(options ExtractOptions) (ExtractOptions, error) {
+func normalizeParseOptions(options ParseOptions) (ParseOptions, error) {
 	if options.Content == 0 {
 		options.Content = ContentText
 	}
@@ -97,8 +97,8 @@ func normalizeExtractOptions(options ExtractOptions) (ExtractOptions, error) {
 	return options, nil
 }
 
-func extractDocument(doc *Document, options ExtractOptions) (*Extraction, error) {
-	result := &Extraction{Content: options.Content, Pages: []ExtractedPage{}, options: options}
+func buildResult(doc *Document, options ParseOptions) (*Result, error) {
+	result := &Result{Content: options.Content, Pages: []ExtractedPage{}, options: options}
 	if options.Provenance {
 		result.Document = doc
 	}
@@ -110,23 +110,23 @@ func extractDocument(doc *Document, options ExtractOptions) (*Extraction, error)
 }
 
 func (b *semanticBuilder) wants(kind ContentKind) bool {
-	return b.extract == nil || b.extract.Content&kind != 0
+	return b.result == nil || b.result.Content&kind != 0
 }
 
 func (b *semanticBuilder) wantPositions() bool {
-	return b.extract == nil || b.extract.options.Positions
+	return b.result == nil || b.result.options.Positions
 }
 
 func (b *semanticBuilder) wantStyles() bool {
-	return b.extract == nil || b.extract.options.Styles
+	return b.result == nil || b.result.options.Styles
 }
 
 func (b *semanticBuilder) wantGlyphs() bool {
-	return b.extract == nil || b.extract.options.Glyphs
+	return b.result == nil || b.result.options.Glyphs
 }
 
 func (b *semanticBuilder) wantProvenance() bool {
-	return b.extract == nil || b.extract.options.Provenance
+	return b.result == nil || b.result.options.Provenance
 }
 
 func (b *semanticBuilder) wantPaths() bool {
@@ -141,8 +141,8 @@ func (b *semanticBuilder) wantPageContent() bool {
 	return b.wants(ContentText | ContentGraphics | ContentImages)
 }
 
-func (p *Extraction) addDiagnostic(diagnostic Diagnostic, page int) {
-	d := ExtractionDiagnostic{
+func (p *Result) addDiagnostic(diagnostic Diagnostic, page int) {
+	d := ResultDiagnostic{
 		Severity: diagnostic.Severity, Code: diagnostic.Code, Message: diagnostic.Message, Page: page,
 	}
 	if p.options.Provenance {

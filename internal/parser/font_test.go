@@ -33,7 +33,7 @@ func TestFontDifferencesImplicitBase(t *testing.T) {
 func TestFontCMapExpansionBudget(t *testing.T) {
 	cmap := `1 beginbfrange <00> <FF> <` + strings.Repeat("0061", 255) + `0000> endbfrange`
 	data := fontFixture(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>`, `BT /F 10 Tf ET`, semanticStream("", cmap))
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 4096}})
+	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 4096}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestFontCMapExpansionBudget(t *testing.T) {
 func TestFontCMapEntryBudget(t *testing.T) {
 	data := fontFixture(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>`, `BT /F 10 Tf ET`,
 		semanticStream("", `1 beginbfrange <00> <64> <0000> endbfrange`))
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 64}})
+	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 64}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestFontCMapEntryBudget(t *testing.T) {
 func TestFontToUnicodeStreamLimit(t *testing.T) {
 	data := fontFixture(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>`, `BT /F 10 Tf ET`,
 		semanticStream("", strings.Repeat(" ", 512)+`1 beginbfchar <01> <0041> endbfchar`))
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 256}})
+	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 256}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestFontCMapSharedBudget(t *testing.T) {
 				semanticStream("", cmap),
 				fmt.Sprintf(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode %d 0 R >>`, secondMap),
 				semanticStream("", cmap))
-			doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 4096}})
+			doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 4096}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -208,7 +208,7 @@ func TestFontWidthBudgetReturnsErrLimit(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			data := fontFixture(test.font, `BT /F 10 Tf ET`, test.extras...)
-			d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+			d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,14 +398,14 @@ func TestExtractUnicodeSkipsFontMetrics(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			data := fontFixture(test.font, `BT /F 10 Tf (A) Tj ET`, test.extras...)
-			got, err := ExtractReader(bytes.NewReader(data), int64(len(data)), ExtractOptions{Content: ContentText})
+			got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText})
 			if err != nil {
 				t.Fatalf("Unicode extraction resolved unused metrics: %v", err)
 			}
 			if len(got.Pages[0].Texts) != 1 || got.Pages[0].Texts[0].Unicode != "A" || !got.Pages[0].Texts[0].DecodeComplete {
 				t.Fatalf("Unicode text=%+v, want A", got.Pages[0].Texts)
 			}
-			_, err = ExtractReader(bytes.NewReader(data), int64(len(data)), ExtractOptions{Content: ContentText, Positions: true})
+			_, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText, Positions: true})
 			if err == nil {
 				t.Fatal("positioned text must resolve required metrics")
 			}
@@ -416,7 +416,7 @@ func TestExtractUnicodeSkipsFontMetrics(t *testing.T) {
 func TestExtractPositionsSkipsEmbeddedFontStream(t *testing.T) {
 	t.Parallel()
 	data := fontFixture(`<< /Subtype /Type1 /BaseFont /Helvetica /FontDescriptor << /MissingWidth 500 /FontFile 99 0 R >> >>`, `BT /F 10 Tf (AA) Tj ET`)
-	got, err := ExtractReader(bytes.NewReader(data), int64(len(data)), ExtractOptions{Content: ContentText, Glyphs: true})
+	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText, Glyphs: true})
 	if err != nil {
 		t.Fatalf("positioned extraction resolved unused font stream: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestExtractUnicodeOmitsPositioningDiagnostics(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			data := fontFixture(test.font, `BT /F 10 Tf (A) Tj ET`,
 				semanticStream("", `1 beginbfchar <41> <0041> endbfchar`), `<< /Subtype /CIDFontType2 >>`)
-			got, err := ExtractReader(bytes.NewReader(data), int64(len(data)), ExtractOptions{})
+			got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -534,7 +534,7 @@ func TestFontBoundsRepeatedCIDWidthExpansion(t *testing.T) {
 		semanticStream("", `BT /F 10 Tf <0001> Tj ET`),
 		`<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding /Identity-H /DescendantFonts [6 0 R] >>`,
 		`<< /Type /Font /Subtype /CIDFontType2 /W [0 99 500 0 99 500] >>`)
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
+	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}

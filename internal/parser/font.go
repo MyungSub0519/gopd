@@ -203,9 +203,9 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 			if e != nil {
 				return -1, e
 			}
-			// Embedded bytes are retained only by the detailed API. Extraction
+			// Embedded bytes are retained only by the detailed API. Result
 			// uses dictionary metrics and never executes the font program.
-			if b.extract == nil {
+			if b.result == nil {
 				for _, name := range []Name{"FontFile", "FontFile2", "FontFile3"} {
 					if stream, exists, e := b.get(dd, name); e != nil {
 						return -1, e

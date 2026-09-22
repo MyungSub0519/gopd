@@ -1,6 +1,6 @@
 # 라이브러리 공개 기능과 API
 
-외부에서 사용할 기능과 그 기능에 대응하는 API 목록입니다. 현재 공개 함수는 **12개**, 공개 타입의 메서드는 **12개**, 공개 타입은 **84개**입니다. 타입에는 기본 결과·상세 결과·PDF 구문과 기존 호환성용 선언이 모두 포함됩니다. 이번 정리에서는 이름·시그니처·필드·상수와 반환 동작을 유지합니다.
+외부에서 사용할 기능과 그 기능에 대응하는 API 목록입니다. 현재 공개 함수는 **12개**, 공개 타입의 메서드는 **12개**, 공개 타입은 **84개**입니다. 타입에는 선택 결과·기본 결과·상세 결과와 PDF 구문 선언이 포함됩니다.
 
 모듈 경로는 `github.com/MyungSub0519/gopd`, 패키지 이름은 `gopd`입니다.
 
@@ -14,23 +14,24 @@ import "github.com/MyungSub0519/gopd"
 
 | 구분 | 제공할 기능 | API | 주요 결과 |
 | --- | --- | --- | --- |
+| 선택 파싱 | 필요한 콘텐츠 종류와 상세 수준만 생성 | `ParseFile`, `ParseReader` | `Result` |
 | 기본 파싱 | 파일에서 페이지별 텍스트·벡터 그래픽 추출 | `ParsePDF` | `PDF` |
 | 상세 결과 접근 | 같은 파싱의 상세 결과 확인 | `PDF.Details` | `DetailedPDF` |
 | 상세 콘텐츠 분석 | 파일·ReaderAt·저수준 문서에서 상세 콘텐츠 해석 | `Open`, `Read`, `BuildPDF` | `DetailedPDF` |
-| 저수준 문서 입력 | 입력 크기·구문 깊이 등의 제한을 적용하여 문서 열기 | `ParseFile`, `Parse` | `Document` |
+| 저수준 문서 입력 | 입력 크기·구문 깊이 등의 제한을 적용하여 문서 열기 | `LoadDocument`, `ReadDocument` | `Document` |
 | 객체 탐색 | Catalog·간접 객체 조회 및 참조 해석 | `Document.Catalog`, `Load`, `Resolve`, `ResolveObject` | `Object`, `IndirectObject` |
 | 원본·스트림 접근 | 구문 바이트 읽기, 스트림 디코딩, 출처 추적 | `Document.Bytes`, `RawObject`, `DecodeStream` | 바이트, `Source` |
 | 독립 구문 분석 | 별도 바이트 범위의 토큰·PDF 객체 분석 | `Lex`, `ParseObject` | `Token`, `Object` |
 | 값 조회·변환 | 사전 조회, 숫자 변환, 스트림 여부 확인 | `Dictionary.Get`, `GetAll`, `Int`, `Number`, `IsStream` | 조회 값과 오류 |
 | 좌표 계산 | 항등 행렬, 점 변환, 변환 합성 | `IdentityMatrix`, `Matrix.Transform`, `Mul` | `Matrix`, `Point` |
 
-일반 사용자는 `ParsePDF`부터 시작합니다. 글리프·이미지·원문 출처 등이 필요하면 `Details()`를 사용합니다. 입력 제한을 직접 설정하거나 객체를 탐색하는 도구는 `ParseFile` 또는 `Parse`부터 시작합니다. 위 기능은 모두 기존 단일 `gopd` 패키지에서 제공합니다.
+일반 사용자는 `ParseFile` 또는 `ParseReader`부터 시작하고 `ParseOptions`로 필요한 결과를 선택합니다. 기존 페이지별 텍스트·그래픽 형식은 `ParsePDF`, 전체 상세 결과는 `Open`·`Read`·`BuildPDF`를 사용합니다. 객체와 원본 바이트를 직접 탐색하려면 `LoadDocument` 또는 `ReadDocument`를 사용합니다.
 
-이미지·주석은 현재 상세 결과에 포함됩니다. 픽셀 렌더링, OCR, 편집·저장, 암호화 해제, 사람의 읽기 순서 복원, 선택적 페이지·콘텐츠 파싱은 현재 공개 기능에 포함하지 않습니다. 지원하지 않는 효과와 입력은 오류 또는 진단으로 확인합니다.
+이미지·주석은 선택 결과와 상세 결과에 포함될 수 있습니다. 픽셀 렌더링, OCR, 편집·저장, 암호화 해제, 사람의 읽기 순서 복원과 페이지 범위 선택은 현재 공개 기능에 포함하지 않습니다. 지원하지 않는 효과와 입력은 오류 또는 진단으로 확인합니다.
 
-## 기본 진입점
+## 사용자 진입점
 
-파일 경로 하나로 기본 결과가 필요하면 `gopd.ParsePDF`를 호출합니다.
+파일에서 필요한 콘텐츠만 파싱하려면 `gopd.ParseFile`을 호출합니다.
 
 ```go
 package main
@@ -43,39 +44,43 @@ import (
 )
 
 func main() {
-    doc, err := gopd.ParsePDF("testdata/synthetic.pdf")
+    result, err := gopd.ParseFile("testdata/synthetic.pdf", gopd.ParseOptions{
+        Content: gopd.ContentText | gopd.ContentImages,
+    })
     if err != nil {
         log.Fatal(err)
     }
 
-    for page, texts := range doc.Texts {
-        fmt.Printf("page=%d texts=%d graphics=%d\n",
-            page+1, len(texts), len(doc.Graphics[page]))
+    for _, page := range result.Pages {
+        fmt.Printf("page=%d texts=%d images=%d\n",
+            page.Index+1, len(page.Texts), len(page.Images))
     }
-    fmt.Println("content diagnostics:", len(doc.Details().Diagnostics))
+    fmt.Println("content diagnostics:", len(result.Diagnostics))
 }
 ```
 
-반환된 `*PDF`의 공개 필드는 `Texts [][]Text`, `Graphics [][]Graphic` 두 개입니다. 바깥 배열은 페이지 순서이며 요소가 없는 페이지는 빈 배열 `[]`로 유지합니다. 페이지 정보·이미지·진단을 포함한 상세 결과는 `doc.Details()`로 접근합니다. 반환 필드와 JSON 사용법은 [기본 PDF API](basic-pdf.md)를 참고하세요.
+반환된 `*Result`는 `ParseOptions.Content`에서 요청한 종류만 페이지별로 담습니다. 위치·스타일·글리프·출처는 각각의 옵션으로 선택합니다. ReaderAt 입력은 `ParseReader`를 사용합니다. 전체 옵션과 반환 구조는 [선택 파싱 안내](selective-extraction.md)를 참고하세요.
 
-CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 보조 함수이며 내부에서 `gopd.ParsePDF()`를 호출합니다. 외부 라이브러리 사용자는 `gopd.ParsePDF()`를 사용합니다.
+기존 `ParsePDF`는 페이지별 `Texts`·`Graphics`와 `Details()`를 함께 제공하며 CLI의 [main.go](../examples/gopd/main.go)가 이 API를 사용합니다.
 
-## 1. PDF 파싱 함수 — 6개
+## 1. PDF 파싱 함수 — 8개
 
 | 시그니처 | 용도 |
 | --- | --- |
-| `func ParsePDF(path string) (*PDF, error)` | 파일 경로로 텍스트와 그래픽을 페이지별로 모은 기본 구조체 반환. 일반 사용자의 진입점 |
+| `func ParseFile(path string, options ParseOptions) (*Result, error)` | 파일에서 선택한 콘텐츠와 상세 수준을 직접 생성하는 기본 진입점 |
+| `func ParseReader(r io.ReaderAt, size int64, options ParseOptions) (*Result, error)` | ReaderAt 입력에서 선택한 결과 생성 |
+| `func ParsePDF(path string) (*PDF, error)` | 파일 경로로 텍스트와 그래픽을 페이지별로 모은 기존 기본 구조체 반환 |
 | `func Open(path string) (*DetailedPDF, error)` | 파일 경로로 페이지 콘텐츠·리소스·명령·출처를 포함한 상세 결과 반환 |
 | `func Read(r io.ReaderAt, size int64) (*DetailedPDF, error)` | ReaderAt과 전체 바이트 크기로 상세 분석 |
-| `func ParseFile(path string, options ...ReadOptions) (*Document, error)` | 파일의 저수준 구문·xref 분석과 객체 접근 준비 |
-| `func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error)` | ReaderAt 입력의 저수준 분석과 객체 접근 준비 |
+| `func LoadDocument(path string, options ...ReadOptions) (*Document, error)` | 파일의 저수준 구문·xref 분석과 객체 접근 준비 |
+| `func ReadDocument(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error)` | ReaderAt 입력의 저수준 분석과 객체 접근 준비 |
 | `func BuildPDF(d *Document) (*DetailedPDF, error)` | 저수준 Document의 페이지 트리와 콘텐츠를 해석해 상세 결과 생성 |
 
 공개 진입점은 [api.go](../api.go)에 모여 있습니다. 파일·ReaderAt 읽기는 [internal/common/document/read.go](../internal/common/document/read.go), 콘텐츠 해석 진입점은 [parser.go](../internal/parser/parser.go), 명령 분배는 [interpreter.go](../internal/parser/interpreter.go), 기본 결과 변환은 [basic.go](../internal/parser/basic.go)에 있습니다.
 
-`Parse`와 `ParseFile`의 `options`는 생략하거나 하나 전달할 수 있습니다. `ReadOptions.MaxFileBytes`와 `ReadOptions.Limits`로 입력 크기·구문 깊이·토큰 크기·객체 수·xref 섹션 수·디코딩 데이터 제한을 설정합니다. 각 필드의 0은 기본값을 사용하고 음수는 오류입니다.
+`LoadDocument`와 `ReadDocument`의 `options`는 생략하거나 하나 전달할 수 있습니다. `ReadOptions.MaxFileBytes`와 `ReadOptions.Limits`로 입력 크기·구문 깊이·토큰 크기·객체 수·xref 섹션 수·디코딩 데이터 제한을 설정합니다. 각 필드의 0은 기본값을 사용하고 음수는 오류입니다.
 
-`ParsePDF`, `Open`, `Read`에는 옵션 인자가 없습니다. 제한을 조정하며 콘텐츠를 해석하려면 `ParseFile` 또는 `Parse`로 문서를 얻고, 오류를 확인한 뒤 `BuildPDF`를 호출합니다.
+`ParsePDF`, `Open`, `Read`에는 옵션 인자가 없습니다. 제한을 조정하며 전체 상세 콘텐츠를 해석하려면 `LoadDocument` 또는 `ReadDocument`로 문서를 얻고, 오류를 확인한 뒤 `BuildPDF`를 호출합니다. 선택 파싱은 `ParseOptions.ReadOptions`로 같은 제한을 전달합니다.
 
 `MaxValues`, `MaxContentBytes`, `MaxSemanticObjects`, `MaxRegionWork`는 각각 누적 직접 값, 반복 실행 콘텐츠 바이트, 의미 분석 방문 횟수, 파일 구간 관리 작업량을 제한합니다. 기본값과 계산 범위는 [리소스 제한](resource-limits.md)을 참고하세요. 리소스 제한 오류는 `errors.Is(err, gopd.ErrLimit)`로 구분합니다.
 
@@ -122,7 +127,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 
 ## 6. Document 메서드 — 7개
 
-`Document`는 `ParseFile`·`Parse`의 반환값 또는 `doc.Details().Document`로 접근합니다.
+`Document`는 `LoadDocument`·`ReadDocument`의 반환값 또는 `doc.Details().Document`로 접근합니다.
 
 | 시그니처 | 용도 |
 | --- | --- |
@@ -179,7 +184,7 @@ CLI의 [main.go](../examples/gopd/main.go)에 있는 `pdfparse()`는 비공개 �
 | 그래픽 | `Graphic`, `PathSegment`, `DetailedGraphic`, `DetailedPathSegment`, `ExtractedGraphic` | [graphic.go](../internal/parser/graphic.go) |
 | 이미지 | `DetailedImage`, `ImageResource`, `ExtractedImage`, `ExtractedImageResource` | [image.go](../internal/parser/image.go) |
 | 주석 | `Annotation`, `ExtractedAnnotation` | [annotation.go](../internal/parser/annotation.go) |
-| 선택 추출·옵션·진단 | `ContentKind`, `ExtractOptions`, `Extraction`, `ExtractionDiagnostic` | [extract.go](../internal/parser/extract.go) |
+| 선택 파싱·옵션·진단 | `ContentKind`, `ParseOptions`, `Result`, `ResultDiagnostic` | [extract.go](../internal/parser/extract.go) |
 | 실행 명령·출처 | `FormCall`, `ElementSource`, `Operation` | [interpreter.go](../internal/parser/interpreter.go) |
 | 글꼴 | `FontInfo`, `Font`, `CodeSpace`, `CMap` | [font.go](../internal/parser/font.go), [cmap.go](../internal/parser/cmap.go) |
 | 스타일 | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath` | [style.go](../internal/parser/style.go) |
@@ -212,8 +217,8 @@ examples/gopd/               CLI 인수 처리와 표시
 
 ## 결과 수명과 오류 처리
 
-- 파일 입력은 메모리 스냅샷으로 보관합니다. `ParseFile`과 `Open`은 자신이 연 파일을 닫으며 `ParsePDF`도 이 경로를 사용합니다. 반환 결과에 `Close()`를 호출할 필요는 없습니다.
-- `Parse`와 `Read`는 호출자가 전달한 ReaderAt을 닫지 않습니다.
+- 파일 입력은 메모리 스냅샷으로 보관합니다. `ParseFile`, `LoadDocument`, `Open`은 자신이 연 파일을 닫으며 `ParsePDF`도 이 경로를 사용합니다. 반환 결과에 `Close()`를 호출할 필요는 없습니다.
+- `ParseReader`, `ReadDocument`, `Read`는 호출자가 전달한 ReaderAt을 닫지 않습니다.
 - `ParsePDF`는 상세 분석까지 수행한 뒤 기본 결과를 생성하고 상세 결과도 유지합니다. 선택적 파싱이나 메모리 절약 모드는 아닙니다.
 - 파싱·콘텐츠 해석 실패 시 부분 결과와 오류가 함께 반환될 수 있으므로, 결과가 nil이 아니어도 반드시 오류를 확인합니다.
 - 미지원 효과는 오류 없이 진단으로 남을 수도 있습니다. `doc.Details().Diagnostics`, `doc.Details().Structure.Diagnostics`, 상세 페이지의 `Complete`와 기본 텍스트의 `DecodeComplete`, `PositionComplete`로 해석 상태를 확인합니다.

@@ -57,7 +57,7 @@ gopd/
 
 | 파일 | 주요 타입·함수 | 작성된 기능 |
 | --- | --- | --- |
-| [api.go](../api.go) | `ParsePDF`, `Open`, `Read`, `BuildPDF`, `ParseFile`, `Parse`, `Lex`, `ParseObject` 등 | 외부 호출의 진입점입니다. 콘텐츠 분석은 `internal/parser`에, 파일 읽기·구문 분석은 `internal/common`의 하위 패키지에 위임합니다. 값 변환·단위 행렬 함수도 여기에서 노출합니다. |
+| [api.go](../api.go) | `ParseFile`, `ParseReader`, `ParsePDF`, `Open`, `Read`, `BuildPDF`, `LoadDocument`, `ReadDocument`, `Lex`, `ParseObject` 등 | 외부 호출의 진입점입니다. 콘텐츠 분석은 `internal/parser`에, 파일 읽기·구문 분석은 `internal/common`의 하위 패키지에 위임합니다. 값 변환·단위 행렬 함수도 여기에서 노출합니다. |
 | [types.go](../types.go) | `Document`, `ReadOptions`, `Object`, `Span`, `Matrix` 등의 별칭 | 내부에 정의된 타입·상수·오류를 루트 API 이름으로 노출합니다. 타입을 새로 감싸거나 데이터를 복사하는 코드가 아니라, 외부 사용자가 `gopd.Document`처럼 접근하도록 연결하는 코드입니다. |
 | [parser.go](../internal/parser/parser.go) | `ParsePDF`, `Open`, `Read`, `BuildPDF`, `DetailedPDF`, `ElementKind`, `ElementRef`, `semanticBuilder` | 기본·상세 파싱 진입점과 문서 전체 결과를 둡니다. 해석 세션의 캐시·출력·예산, 사전 조회와 진단 생성, 반복 리소스 작업 및 출력 크기 제한을 담당합니다. |
 | [page.go](../internal/parser/page.go) | `DetailedPage`, `ExtractedPage`, `walkPages`, `interpretPage` | 페이지 결과와 페이지 트리·상속 속성 해석, 콘텐츠 연결·실행을 함께 둡니다. 상세 페이지의 `Items`는 텍스트·그래픽·이미지가 섞인 실행 순서를 보존합니다. |
@@ -71,7 +71,7 @@ gopd/
 | [cmap.go](../internal/parser/cmap.go) | `CodeSpace`, `CMap`, `parseToUnicode`, `decodeBounded` | ToUnicode CMap을 읽어 PDF 글꼴의 문자 코드와 Unicode 문자열을 연결합니다. 코드 길이와 매핑 범위를 처리하고 디코딩 결과의 완전성 및 출력 크기 제한을 관리합니다. |
 | [style.go](../internal/parser/style.go) | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath`, `basicStyle`, `extractStyle` | 색상, 선 두께, 점선, 투명도, 혼합 모드와 클리핑 정보를 정의하고 기본·선택 추출용 스타일로 변환합니다. |
 | [basic.go](../internal/parser/basic.go) | `PDF`, `Details`, `basicPDF` | 상세 결과를 기본 결과의 페이지별 텍스트·그래픽 배열로 변환합니다. `Details()`는 저장해 둔 상세 결과를 반환합니다. |
-| [extract.go](../internal/parser/extract.go) | `Extract`, `ExtractReader`, `ContentKind`, `ExtractOptions`, `Extraction`, `ExtractionDiagnostic` | 선택 추출의 옵션·문서 결과·진단과 실행 코드를 둡니다. 요소별 결과 타입과 출력 코드는 각 콘텐츠 파일에 있습니다. 루트 `api.go`와 `types.go`가 공개 이름을 제공합니다. |
+| [extract.go](../internal/parser/extract.go) | `ParseFile`, `ParseReader`, `ContentKind`, `ParseOptions`, `Result`, `ResultDiagnostic` | 선택 파싱의 옵션·문서 결과·진단과 실행 코드를 둡니다. 요소별 결과 타입과 출력 코드는 각 콘텐츠 파일에 있습니다. 루트 `api.go`와 `types.go`가 공개 이름을 제공합니다. |
 | [doc.go](../doc.go) | `gopd` 패키지 문서 | 기본·상세·저수준 API의 사용 단계, 메모리 소유권, 동시 호출 제약, 좌표와 실행 순서의 의미를 설명합니다. |
 
 `parser.go`는 문서 해석 세션을, `page.go`는 페이지와 콘텐츠 선택을 관리합니다. `interpreter.go`는 구문 분석과 명령 분배를 연결하고, `text.go`·`graphic.go`·`image.go`·`annotation.go`는 각 콘텐츠의 타입·해석·결과 저장을 함께 둡니다. `resource.go`는 리소스를 통한 실행을 담당합니다. 파일은 나누되 같은 상태와 예산을 공유하는 하나의 `internal/parser` Go 패키지를 유지합니다. `font.go`는 글꼴 리소스 전체를, `cmap.go`는 문자 코드 매핑을 담당합니다.
@@ -82,7 +82,7 @@ PDF 파일의 물리적 구조를 다루는 패키지입니다. xref는 객체 �
 
 | 파일 | 주요 타입·함수 | 작성된 기능 |
 | --- | --- | --- |
-| [read.go](../internal/common/document/read.go) | `ReadOptions`, `normalizeOptions`, `ParseFile`, `Parse` | 입력·분석 제한값을 설정하고 파일 또는 `io.ReaderAt`에서 전체 바이트 스냅샷을 읽습니다. `Document`를 초기화한 뒤 헤더와 xref 분석을 시작합니다. |
+| [read.go](../internal/common/document/read.go) | `ReadOptions`, `normalizeOptions`, `Load`, `Read` | 입력·분석 제한값을 설정하고 파일 또는 `io.ReaderAt`에서 전체 바이트 스냅샷을 읽습니다. `Document`를 초기화한 뒤 헤더와 xref 분석을 시작합니다. |
 | [document.go](../internal/common/document/document.go) | `Document`, `Bytes`, `RawObject`, `Catalog`, `Resolve`, `ResolveObject`, `parseObject` | 원본·디코딩 소스와 객체 캐시 등 문서 상태를 보관합니다. 바이트 범위 조회, 문서 최상위 카탈로그 조회, 간접 참조 해석과 참조 순환 검사를 제공합니다. 트레일러와 객체를 읽을 때 누적 구문 값 예산을 적용합니다. |
 | [objects.go](../internal/common/document/objects.go) | `Load`, `parseIndirect`, `loadCompressed`, `objectStreamIndex` | 객체 번호에 해당하는 간접 객체를 필요할 때 읽고 캐시합니다. `obj`·`endobj` 경계, 스트림 길이, 여러 객체를 담는 객체 스트림의 헤더 색인과 캐시를 처리합니다. |
 | [xref.go](../internal/common/document/xref.go) | `readHeaderAndXRefs`, `readXRefChain`, `readXRefTable`, `readXRefStream` | 헤더와 파일 끝 정보를 읽고, 표 또는 스트림 형태의 xref를 분석합니다. 증분 저장 이력을 따라가 최신 객체 위치를 적용하며 삭제된 객체와 참조 순환도 처리합니다. |
@@ -126,12 +126,12 @@ PDF 파일의 물리적 구조를 다루는 패키지입니다. xref는 객체 �
 
 ## 코드를 읽는 순서
 
-1. [api.go](../api.go) → [internal/parser/parser.go](../internal/parser/parser.go): 공개 API 위임과 `ParsePDF → Open → ParseFile → BuildPDF` 호출 흐름 및 해석 세션·예산. 선택 추출은 [internal/parser/extract.go](../internal/parser/extract.go)에서 시작합니다.
-2. [internal/common/document/read.go](../internal/common/document/read.go): 크기 제한을 검사하고 파일을 메모리 스냅샷으로 읽는 부분. `ParseFile`은 연 파일을 닫고 `Parse`는 호출자가 전달한 ReaderAt을 닫지 않습니다.
+1. [api.go](../api.go) → [internal/parser/extract.go](../internal/parser/extract.go): `ParseFile`·`ParseReader` 선택 파싱 진입점과 옵션·결과 생성 흐름. 기존 전체 상세 흐름은 [internal/parser/parser.go](../internal/parser/parser.go)의 `ParsePDF → Open → LoadDocument → BuildPDF`에서 이어집니다.
+2. [internal/common/document/read.go](../internal/common/document/read.go): 크기 제한을 검사하고 파일을 메모리 스냅샷으로 읽는 부분. `Load`는 연 파일을 닫고 `Read`는 호출자가 전달한 ReaderAt을 닫지 않습니다.
 3. [page.go](../internal/parser/page.go) → [interpreter.go](../internal/parser/interpreter.go): 페이지 선택, 콘텐츠 구문 분석, 명령 분배 순서. 콘텐츠별 구현은 [text.go](../internal/parser/text.go), [graphic.go](../internal/parser/graphic.go), [image.go](../internal/parser/image.go), [annotation.go](../internal/parser/annotation.go), 리소스 실행은 [resource.go](../internal/parser/resource.go)에서 이어 읽습니다.
 4. [basic.go](../internal/parser/basic.go): 상세 콘텐츠를 페이지별 `Texts`·`Graphics`로 정리하는 부분.
 
-`ParseFile`의 결과는 객체와 바이트를 조회하는 `Document`, `BuildPDF`의 결과는 페이지 내용을 해석한 `DetailedPDF`, `ParsePDF`의 결과는 페이지별 배열을 제공하는 `PDF`입니다. 현재 `ParsePDF`도 상세 분석을 수행하고 그 결과를 보관합니다. `Details()`를 호출할 때 다시 파싱하지 않습니다.
+`ParseFile`·`ParseReader`의 결과는 선택한 콘텐츠를 담은 `Result`, `LoadDocument`·`ReadDocument`의 결과는 객체와 바이트를 조회하는 `Document`입니다. `BuildPDF`는 `DetailedPDF`, `ParsePDF`는 페이지별 배열을 제공하는 `PDF`를 반환합니다. 현재 `ParsePDF`도 상세 분석을 수행하고 그 결과를 보관하며 `Details()`를 호출할 때 다시 파싱하지 않습니다.
 
 바이트 단위 분석은 위치를 바이트로 추적한다는 의미입니다. 파일을 매번 1바이트씩 읽는 구현은 아닙니다. `Document.Bytes(span)`은 원본 또는 디코딩 소스의 `[Start, End)`를 복사해서 반환합니다.
 

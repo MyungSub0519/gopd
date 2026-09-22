@@ -332,7 +332,7 @@ func (c *contentInterpreter) setDash(dash []float64, phase float64) error {
 }
 
 func (c *contentInterpreter) emitGraphic(graphic DetailedGraphic) {
-	if c.b.extract == nil {
+	if c.b.result == nil {
 		c.item(ElementGraphic, len(c.b.pdf.Graphics))
 		c.b.pdf.Graphics = append(c.b.pdf.Graphics, graphic)
 		return
@@ -351,6 +351,6 @@ func (c *contentInterpreter) emitGraphic(graphic DetailedGraphic) {
 		source := graphic.Source
 		output.Source = &source
 	}
-	page := &c.b.extract.Pages[c.page]
+	page := &c.b.result.Pages[c.page]
 	page.Graphics = append(page.Graphics, output)
 }

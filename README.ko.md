@@ -14,7 +14,7 @@ Go 네이티브로 작성된 프로젝트 중에는 상업적으로 사용되는
 
 ## 필요한 콘텐츠만 추출하기
 
-`Extract`는 요청한 종류의 결과만 생성합니다. 빈 옵션은 Unicode 텍스트와 기본 글꼴 정보를 페이지별로 반환합니다.
+`ParseFile`은 요청한 종류의 결과만 생성합니다. 빈 옵션은 Unicode 텍스트와 기본 글꼴 정보를 페이지별로 반환합니다.
 
 ```go
 package main
@@ -27,7 +27,7 @@ import (
 )
 
 func main() {
-    result, err := gopd.Extract("testdata/synthetic.pdf", gopd.ExtractOptions{})
+    result, err := gopd.ParseFile("testdata/synthetic.pdf", gopd.ParseOptions{})
     if err != nil {
         log.Fatal(err)
     }
@@ -39,7 +39,7 @@ func main() {
 }
 ```
 
-`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. `Positions`, `Styles`, `Glyphs`, `Provenance`로 상세 정보를 선택합니다. `Glyphs`는 텍스트 선택이 필요하며 위치 계산도 활성화합니다. `ExtractReader`는 `io.ReaderAt`과 입력 크기를 받습니다.
+`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. `Positions`, `Styles`, `Glyphs`, `Provenance`로 상세 정보를 선택합니다. `Glyphs`는 텍스트 선택이 필요하며 위치 계산도 활성화합니다. `ParseReader`는 `io.ReaderAt`과 입력 크기를 받습니다.
 
 선택한 종류는 콘텐츠 순회기를 공유합니다. 미선택 결과는 생성하지 않으며 `Provenance`를 켰을 때만 결과가 원본 스냅샷을 보관합니다. 호출 중에는 입력과 디코딩 캐시가 메모리에 남습니다. 스트리밍 파일 읽기나 건너뛴 콘텐츠의 전체 유효성 검사를 보장하지 않습니다.
 

@@ -30,7 +30,7 @@ type ExtractedImage struct {
 
 // ExtractedImageResource retains image metadata, not decoded pixels. ColorSpace
 // preserves the PDF value (including complex color-space parameters). Object is
-// present only with Provenance; its Stream can be used with Extraction.Document.
+// present only with Provenance; its Stream can be used with Result.Document.
 type ExtractedImageResource struct {
 	ID               ObjectID
 	Width, Height    int
@@ -94,7 +94,7 @@ func (c *contentInterpreter) image(image ImageResource, op Operation, index int,
 }
 
 func (b *semanticBuilder) emitImageResource(resource ImageResource) int {
-	if b.extract == nil {
+	if b.result == nil {
 		index := len(b.pdf.ImageResources)
 		b.pdf.ImageResources = append(b.pdf.ImageResources, resource)
 		return index
@@ -108,13 +108,13 @@ func (b *semanticBuilder) emitImageResource(resource ImageResource) int {
 		object := resource.Object
 		output.Object = &object
 	}
-	index := len(b.extract.ImageResources)
-	b.extract.ImageResources = append(b.extract.ImageResources, output)
+	index := len(b.result.ImageResources)
+	b.result.ImageResources = append(b.result.ImageResources, output)
 	return index
 }
 
 func (c *contentInterpreter) emitImage(image DetailedImage) {
-	if c.b.extract == nil {
+	if c.b.result == nil {
 		c.item(ElementImage, len(c.b.pdf.Images))
 		c.b.pdf.Images = append(c.b.pdf.Images, image)
 		return
@@ -129,6 +129,6 @@ func (c *contentInterpreter) emitImage(image DetailedImage) {
 		source := image.Source
 		output.Source = &source
 	}
-	page := &c.b.extract.Pages[c.page]
+	page := &c.b.result.Pages[c.page]
 	page.Images = append(page.Images, output)
 }

@@ -159,7 +159,7 @@ func TestStreamDecodeBudgetAndWrongLength(t *testing.T) {
 	_, _ = w.Write(bytes.Repeat([]byte{'a'}, 1024))
 	_ = w.Close()
 	data = makeTestPDF([]string{"<< /Type /Catalog >>", fmt.Sprintf("<< /Length %d /Filter /FlateDecode >>\nstream\n%s\nendstream", compressed.Len(), compressed.String())}, "")
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 64}})
+	d, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 64}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestStreamDecodeBudgetAndWrongLength(t *testing.T) {
 func decodeWithLimit(t *testing.T, filter string, payload []byte, limit int64) ([]byte, error) {
 	t.Helper()
 	data := makeTestPDF([]string{"<< /Type /Catalog >>", fmt.Sprintf("<< /Length %d /Filter /%s >>\nstream\n%s\nendstream", len(payload), filter, payload)}, "")
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: limit}})
+	d, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: limit}})
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func TestDecodeStreamAccountsForCompressedDependencies(t *testing.T) {
 				3: fmt.Sprintf("<< /Type /ObjStm /N 1 /First 4 /Length 61 >>\nstream\n%s\nendstream", payload),
 			}, map[int][2]int{4: {3, 0}}, 5)
 			for _, limit := range []int64{130, 163} {
-				doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: limit}})
+				doc, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: limit}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -360,7 +360,7 @@ func TestDecodeStreamExhaustedBudget(t *testing.T) {
 				objects = append(objects, fmt.Sprintf("<< /Length %d %s >>\nstream\n%s\nendstream", len(payload), tc.dictionary, payload))
 			}
 			data := makeTestPDF(objects, "")
-			doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 1}})
+			doc, err := Read(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 1}})
 			if err != nil {
 				t.Fatal(err)
 			}

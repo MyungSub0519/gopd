@@ -64,10 +64,10 @@ func normalizeOptions(options []ReadOptions) (ReadOptions, error) {
 	return o, nil
 }
 
-// ParseFile snapshots a file and prepares low-level object access. It closes
+// Load snapshots a file and prepares low-level object access. It closes
 // the file before returning. At most one ReadOptions value may be supplied;
 // a structural error can return a partial Document together with the error.
-func ParseFile(path string, options ...ReadOptions) (*Document, error) {
+func Load(path string, options ...ReadOptions) (*Document, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -77,11 +77,11 @@ func ParseFile(path string, options ...ReadOptions) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Parse(f, stat.Size(), options...)
+	return Read(f, stat.Size(), options...)
 }
 
-// Parse snapshots r; it never closes a caller-owned ReaderAt.
-func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
+// Read snapshots r; it never closes a caller-owned ReaderAt.
+func Read(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
 	o, err := normalizeOptions(options)
 	if err != nil {
 		return nil, err

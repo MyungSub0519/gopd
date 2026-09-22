@@ -260,18 +260,18 @@ const (
 	ContentAll         = parser.ContentAll
 )
 
-// ExtractOptions controls work and retained output. Zero options extract Unicode
+// ParseOptions controls work and retained output. Zero options extract Unicode
 // text and compact font metadata. Glyphs requires text and enables Positions.
 // Positions use unrotated page user space, as in the detailed API.
-type ExtractOptions = parser.ExtractOptions
+type ParseOptions = parser.ParseOptions
 
-// Extraction contains only requested output, in content execution order within
+// Result contains only requested output, in content execution order within
 // each kind. It does not reconstruct reading order or render pixels. Treat
 // results as read-only. Without Provenance, no Document or DetailedPDF is retained.
-type Extraction = parser.Extraction
+type Result = parser.Result
 
 // ExtractedPage groups selected elements. An omitted category was not requested
-// or has no elements; Extraction.Content distinguishes those cases.
+// or has no elements; Result.Content distinguishes those cases.
 type ExtractedPage = parser.ExtractedPage
 
 // ExtractedText is one text-show operation, with independently selected details.
@@ -289,15 +289,15 @@ type ExtractedImage = parser.ExtractedImage
 
 // ExtractedImageResource retains image metadata, not decoded pixels. ColorSpace
 // preserves the PDF value (including complex color-space parameters). Object is
-// present only with Provenance; its Stream can be used with Extraction.Document.
+// present only with Provenance; its Stream can be used with Result.Document.
 type ExtractedImageResource = parser.ExtractedImageResource
 
 // ExtractedAnnotation contains annotation metadata; appearance streams are not executed.
 type ExtractedAnnotation = parser.ExtractedAnnotation
 
-// ExtractionDiagnostic reports a requested interpretation limitation. Page is
+// ResultDiagnostic reports a requested interpretation limitation. Page is
 // zero based, or -1 for a document-level issue. Span needs Provenance to resolve.
-type ExtractionDiagnostic = parser.ExtractionDiagnostic
+type ResultDiagnostic = parser.ResultDiagnostic
 
 type Font = parser.Font
 

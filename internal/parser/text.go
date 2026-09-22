@@ -177,7 +177,7 @@ func (c *contentInterpreter) executeText(op Operation, index int) error {
 // Emission is the only boundary that chooses a retained output model. The
 // interpreter's transient state and resource caches are shared by both APIs.
 func (c *contentInterpreter) emitText(text DetailedText) {
-	if c.b.extract == nil {
+	if c.b.result == nil {
 		c.item(ElementText, len(c.b.pdf.Texts))
 		c.b.pdf.Texts = append(c.b.pdf.Texts, text)
 		return
@@ -210,7 +210,7 @@ func (c *contentInterpreter) emitText(text DetailedText) {
 		source := text.Source
 		output.Source = &source
 	}
-	page := &b.extract.Pages[c.page]
+	page := &b.result.Pages[c.page]
 	page.Texts = append(page.Texts, output)
 }
 
@@ -300,7 +300,7 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			return fmt.Errorf("%w: text character-code byte limit exceeded", ErrLimit)
 		}
 		c.b.glyphCodes += len(raw.Bytes)
-		if c.b.extract == nil {
+		if c.b.result == nil {
 			text.RawCodes = append(text.RawCodes, raw.Bytes...)
 		}
 		decoded, codes, complete, decodeError := font.decodeSelected(

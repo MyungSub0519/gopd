@@ -24,7 +24,7 @@ type DetailedPage struct {
 }
 
 // ExtractedPage groups selected elements. An omitted category was not requested
-// or has no elements; Extraction.Content distinguishes those cases.
+// or has no elements; Result.Content distinguishes those cases.
 type ExtractedPage struct {
 	Index             int
 	MediaBox, CropBox Rect
@@ -162,13 +162,13 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 		}
 	}
 	b.pdf.Pages = append(b.pdf.Pages, page)
-	if b.extract != nil {
-		b.extract.Pages = append(b.extract.Pages, ExtractedPage{
+	if b.result != nil {
+		b.result.Pages = append(b.result.Pages, ExtractedPage{
 			Index: page.Index, MediaBox: page.MediaBox, CropBox: page.CropBox,
 			Rotate: page.Rotate, UserUnit: page.UserUnit, Complete: true,
 		})
 		defer func() {
-			output := &b.extract.Pages[page.Index]
+			output := &b.result.Pages[page.Index]
 			output.Complete = b.pdf.Pages[page.Index].Complete
 			if b.wantProvenance() {
 				output.Operations = b.pdf.Pages[page.Index].Operations
@@ -179,14 +179,14 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 	b.page = page.Index
 	defer func() { b.page = previousPage }()
 	if err := b.interpretPage(page); err != nil {
-		if b.extract != nil {
+		if b.result != nil {
 			b.pdf.Pages[page.Index].Complete = false
 		}
 		return err
 	}
 	if b.wants(ContentAnnotations) {
 		if err := b.readAnnotations(page.Index, dict); err != nil {
-			if b.extract != nil {
+			if b.result != nil {
 				b.pdf.Pages[page.Index].Complete = false
 			}
 			return err

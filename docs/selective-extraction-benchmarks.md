@@ -12,8 +12,8 @@ go test ./internal/parser -run '^$' -bench '^BenchmarkExtractDense$' -benchmem -
 | Mode | Median allocated bytes/op | Median allocations/op | JSON bytes |
 | --- | ---: | ---: | ---: |
 | Legacy detailed analysis + basic projection | 47070972.5 | 166618.5 | 1902028 |
-| ExtractReader, default Unicode text | 2532830 | 66494 | 214198 |
-| ExtractReader, all content + positions/styles/glyphs | 23109828 | 154520 | 7764212 |
+| ParseReader, default Unicode text | 2532830 | 66494 | 214198 |
+| ParseReader, all content + positions/styles/glyphs | 23109828 | 154520 | 7764212 |
 
 On this fixture, requesting only Unicode text reduces total allocated bytes by
 94.6% and JSON bytes by 88.7% relative to the legacy basic result.

@@ -40,7 +40,7 @@ type ElementRef struct {
 }
 
 type semanticBuilder struct {
-	extract            *Extraction
+	result             *Result
 	fontInfos          map[int]*FontInfo
 	doc                *Document
 	pdf                *DetailedPDF
@@ -80,7 +80,7 @@ func ParsePDF(path string) (*PDF, error) {
 // Open returns detailed contents, resources, operations, and byte provenance.
 // Use ParsePDF for a basic result. Both functions close the input file.
 func Open(path string) (*DetailedPDF, error) {
-	d, err := ParseFile(path)
+	d, err := LoadDocument(path)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func Open(path string) (*DetailedPDF, error) {
 // Read parses a bounded snapshot of r and returns detailed page contents.
 // The caller retains ownership of r; no Close call is required on the result.
 func Read(r io.ReaderAt, size int64) (*DetailedPDF, error) {
-	d, err := Parse(r, size)
+	d, err := ReadDocument(r, size)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func BuildPDF(d *Document) (*DetailedPDF, error) {
 	return buildPDF(d, nil)
 }
 
-func buildPDF(d *Document, extraction *Extraction) (*DetailedPDF, error) {
+func buildPDF(d *Document, result *Result) (*DetailedPDF, error) {
 	if d == nil {
 		return nil, fmt.Errorf("nil Document")
 	}
@@ -113,7 +113,7 @@ func buildPDF(d *Document, extraction *Extraction) (*DetailedPDF, error) {
 		return p, fmt.Errorf("semantic decoding of encrypted PDF is unsupported")
 	}
 	b := &semanticBuilder{
-		extract:     extraction,
+		result:      result,
 		doc:         d,
 		pdf:         p,
 		fonts:       make(map[Span]int),
@@ -163,16 +163,16 @@ func buildPDF(d *Document, extraction *Extraction) (*DetailedPDF, error) {
 	return p, err
 }
 
-// ParseFile snapshots a file and prepares low-level object access. It closes
+// LoadDocument snapshots a file and prepares low-level object access. It closes
 // the file before returning. At most one ReadOptions value may be supplied;
 // a structural error can return a partial Document together with the error.
-func ParseFile(path string, options ...ReadOptions) (*Document, error) {
-	return document.ParseFile(path, options...)
+func LoadDocument(path string, options ...ReadOptions) (*Document, error) {
+	return document.Load(path, options...)
 }
 
-// Parse snapshots r; it never closes a caller-owned ReaderAt.
-func Parse(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
-	return document.Parse(r, size, options...)
+// ReadDocument snapshots r; it never closes a caller-owned ReaderAt.
+func ReadDocument(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
+	return document.Read(r, size, options...)
 }
 
 // Lex scans one complete byte range, preserving whitespace and comments as
@@ -274,11 +274,11 @@ func (b *semanticBuilder) diag(code, message string, span Span) error {
 	}
 	b.unicodeBytes += bytes
 	diagnostic := Diagnostic{Severity: SeverityWarning, Code: code, Message: message, Span: span}
-	if b.extract == nil {
+	if b.result == nil {
 		b.pdf.Diagnostics = append(b.pdf.Diagnostics, diagnostic)
 		b.pdf.diagnosticPages = append(b.pdf.diagnosticPages, b.page)
 	} else {
-		b.extract.addDiagnostic(diagnostic, b.page)
+		b.result.addDiagnostic(diagnostic, b.page)
 	}
 	if b.page >= 0 {
 		b.pdf.Pages[b.page].Complete = false

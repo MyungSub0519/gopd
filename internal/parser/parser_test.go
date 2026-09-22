@@ -34,7 +34,7 @@ func FuzzBuildPDF(f *testing.F) {
 			semanticStream(`/Subtype /Form /BBox [10 10 0 0] /Resources << /Font << /F 7 0 R >> >>`, `BT /F 10 Tf (A) Tj ET`),
 			`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 65 /Widths [600] >>`,
 			semanticStream(`/Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8`, "A"))
-		d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{
+		d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{
 			MaxDepth: 12, MaxObjects: 128, MaxValues: 2048, MaxSemanticObjects: 256,
 			MaxContentBytes: 32 << 10, MaxDecodedBytes: 32 << 10, MaxTokenBytes: 4096,
 		}})
@@ -122,7 +122,7 @@ func TestContentCumulativeByteBudget(t *testing.T) {
 				`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 				`<< /Type /Page /Parent 2 0 R /Contents [`+strings.Repeat("4 0 R ", repeats)+`] >>`,
 				semanticStream("", strings.Repeat(" ", 64)))
-			d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 64, MaxContentBytes: 128}})
+			d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 64, MaxContentBytes: 128}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,7 +145,7 @@ func TestContentByteBudgetIncludesForms(t *testing.T) {
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Fm 5 0 R >> >> >>`,
 		semanticStream("", content),
 		semanticStream(`/Subtype /Form /BBox [0 0 1 1]`, strings.Repeat(" ", 64)))
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxContentBytes: int64(len(content) + 64)}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxContentBytes: int64(len(content) + 64)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestContentValueBudgetIncludesRepeatedOperands(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
 		semanticStream("", strings.Repeat("[1 2] 0 d ", 17)))
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: 64}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: 64}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestContentBoundsRepeatedWhitespaceStreams(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents [`+strings.Repeat("4 0 R ", 200)+`] >>`,
 		semanticStream("", strings.Repeat(" ", 65536)))
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestContentBoundsAnnotationOccurrences(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Annots [`+strings.Repeat("4 0 R ", 200)+`] >>`,
 		`<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] >>`)
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestContentSemanticBudgetIsCumulativeAcrossPages(t *testing.T) {
 		`[6 0 R 6 0 R]`,
 		`<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] >>`)
 	for _, budget := range []int{6, 7} {
-		d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20, MaxSemanticObjects: budget}})
+		d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20, MaxSemanticObjects: budget}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -307,7 +307,7 @@ func TestExtGStateRepeatedEntriesConsumeSemanticBudget(t *testing.T) {
 	}
 	state.WriteString(" >>")
 	data := graphicsStateFixture(state.String(), strings.Repeat("/G gs ", 10))
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxSemanticObjects: 300}})
+	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxSemanticObjects: 300}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestXObjectRepeatedDictionaryWorkConsumesSemanticBudget(t *testing.T) {
 				semanticStream(subtype+unused.String(), ""),
 			)
 			for _, limit := range []int{300, 2000} {
-				doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxSemanticObjects: limit}})
+				doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxSemanticObjects: limit}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -369,7 +369,7 @@ func TestExtGStateDashExpansionConsumesValueBudget(t *testing.T) {
 		// Resource expansion and retained styles must both be bounded: the
 		// second case applies the state once but would copy it for every basic graphic.
 		data := graphicsStateFixture("<< /D [["+strings.Repeat("1 ", 100)+"] 0] >>", content)
-		doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: 300}})
+		doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: 300}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -388,7 +388,7 @@ func TestExtGStateValueBudgetBoundary(t *testing.T) {
 	// 32 style values (30 dash + two gray components) require exactly 67.
 	data := graphicsStateFixture("<< /D [["+strings.Repeat("1 ", 30)+"] 0] >>", "/G gs 0 0 1 1 re f")
 	for _, limit := range []int{66, 67} {
-		doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: limit}})
+		doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: limit}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -412,7 +412,7 @@ func TestContentDiagnosticsConsumeBudget(t *testing.T) {
 		{MaxSemanticObjects: 4}, // two page visits, one stream, one operator, no diagnostic capacity
 		{MaxDecodedBytes: 32},   // input fits, but the expanded diagnostic message does not
 	} {
-		doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: limits})
+		doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: limits})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -582,7 +582,7 @@ func TestContentStandardEncodingQuotes(t *testing.T) {
 func TestContentHonorsGlyphAndOperandDepthLimits(t *testing.T) {
 	for _, content := range []string{`BT /F 10 Tf (` + strings.Repeat("A", 101) + `) Tj ET`, strings.Repeat("[", 20) + strings.Repeat("]", 20) + ` DP`} {
 		data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", content), `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`)
-		d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100, MaxDepth: 8}})
+		d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100, MaxDepth: 8}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -594,7 +594,7 @@ func TestContentHonorsGlyphAndOperandDepthLimits(t *testing.T) {
 
 func TestContentBoundsRepeatedEmptyPageTreeNodes(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R 3 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [4 0 R 4 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [5 0 R 5 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [6 0 R 6 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [] /Count 0 >>`)
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +621,7 @@ func TestContentDoesNotClaimCustomCIDPositioning(t *testing.T) {
 
 func TestContentBoundsExpandedFontMaps(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", `BT /F 10 Tf (A) Tj ET`), `<< /Type /Font /Subtype /TrueType /ToUnicode 6 0 R >>`, semanticStream("", `1 beginbfrange <00> <64> <0041> endbfrange`))
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +632,7 @@ func TestContentBoundsExpandedFontMaps(t *testing.T) {
 
 func TestContentBoundsExpandedUnicodeText(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", `BT /F 10 Tf (`+strings.Repeat("A", 300)+`) Tj ET`), `<< /Type /Font /Subtype /TrueType /ToUnicode 6 0 R >>`, semanticStream("", `1 beginbfchar <41> <`+strings.Repeat("0041", 10)+`> endbfchar`))
-	d, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 1024}})
+	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 1024}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +675,7 @@ func TestContentBoundsCumulativeClipSnapshots(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
 		semanticStream("", strings.Repeat(`0 0 1 1 re W n `, 15)))
-	doc, err := Parse(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
+	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}
