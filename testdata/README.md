@@ -2,7 +2,7 @@
 
 `synthetic.pdf` is generated entirely from invented text, coordinates and pixel
 values in [generate.go](generate.go), using the standard-library-only PDF writer
-in `internal/common/pdftest`. It contains no names, addresses, document identifiers,
+in `internal/pdftest`. It contains no names, addresses, document identifiers,
 external fonts, copied images, timestamps or machine-specific metadata.
 
 The fixture is intended to be committed and redistributed with GoPD's tests.
@@ -14,7 +14,7 @@ Run from the repository root:
 ```text
 go run ./testdata/generate.go
 go run ./testdata/generate.go -check
-go run ./examples/gopd -json testdata/synthetic.pdf
+go run ./cmd/gopd -json testdata/synthetic.pdf
 go test ./...
 ```
 

@@ -1,9 +1,13 @@
 package parser
 
+import (
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+)
+
 type Color struct {
-	Space      Name
+	Space      pdfmodel.Name
 	Components []float64
-	Pattern    Name
+	Pattern    pdfmodel.Name
 }
 
 // PaintStyle omits transformation and clipping geometry. Clipped indicates that
@@ -17,13 +21,13 @@ type PaintStyle struct {
 	Dash                   []float64
 	DashPhase              float64
 	StrokeAlpha, FillAlpha float64
-	BlendMode              Name
+	BlendMode              pdfmodel.Name
 	Clipped                bool
 	Complete               bool
 }
 
 type GraphicsState struct {
-	CTM                    Matrix
+	CTM                    pdfmodel.Matrix
 	LineWidth              float64
 	LineCap, LineJoin      int
 	MiterLimit             float64
@@ -31,9 +35,9 @@ type GraphicsState struct {
 	DashPhase              float64
 	Stroke, Fill           Color
 	StrokeAlpha, FillAlpha float64
-	BlendMode              Name
+	BlendMode              pdfmodel.Name
 	Clip                   []ClipPath
-	RenderingIntent        Name
+	RenderingIntent        pdfmodel.Name
 	Complete               bool
 }
 

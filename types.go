@@ -1,16 +1,18 @@
 package gopd
 
 import (
-	"github.com/MyungSub0519/gopd/internal/common/document"
-	"github.com/MyungSub0519/gopd/internal/common/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/document"
 	"github.com/MyungSub0519/gopd/internal/parser"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
-// Document owns an immutable input snapshot and lazily decoded sources.
-// Treat returned objects/slices as read-only. Lazy methods are not concurrent-safe.
+// Document reads original input through a bounded buffer and retains decoded
+// sources. Keep input open and unchanged until Close. Treat returned data as
+// read-only. Lazy methods and Close are not concurrent-safe.
 type Document = document.Document
 
 // ReadOptions bounds input, recursive parsing, xrefs and decoded stream data.
+// BufferSize controls the original-input buffer in bytes (zero uses 64 KiB).
 // Zero fields use defaults. Negative values are invalid.
 type ReadOptions = document.ReadOptions
 
@@ -212,8 +214,9 @@ type CodeSpace = parser.CodeSpace
 
 type CMap = parser.CMap
 
-// DetailedPDF is a semantic snapshot. Slices and the underlying Document are read-only
-// by convention. Elements follow content execution order, not reading order.
+// DetailedPDF retains eager semantic results and a Document for lazy access.
+// Close releases the shared Document. Treat results as read-only. Elements follow
+// content execution order, not reading order.
 type DetailedPDF = parser.DetailedPDF
 
 type ElementKind = parser.ElementKind
@@ -260,28 +263,42 @@ const (
 	ContentAll         = parser.ContentAll
 )
 
-// ParseOptions controls work and retained output. Zero options extract Unicode
-// text and compact font metadata. Glyphs requires text and enables Positions.
-// Positions use unrotated page user space, as in the detailed API.
+// DetailLevel selects retained information and work, not PDF support or accuracy.
+type DetailLevel = parser.DetailLevel
+
+const (
+	// DetailBasic retains selected content and compact font metadata (default).
+	DetailBasic = parser.DetailBasic
+	// DetailLayout adds text/image positions and paint styles.
+	DetailLayout = parser.DetailLayout
+	// DetailFull adds glyphs, operations, source provenance and Result.Details().
+	// It does not render pixels or enable unselected content kinds.
+	DetailFull = parser.DetailFull
+)
+
+// ParseOptions selects Content and a fixed Detail level, with ReadOptions for
+// resource limits. Zero options return text at DetailBasic. Coordinates use
+// unrotated PDF user space; graphics paths and annotation rectangles are always
+// included. Detail replaces the former Positions/Styles/Glyphs/Provenance flags.
 type ParseOptions = parser.ParseOptions
 
 // Result contains only requested output, in content execution order within
 // each kind. It does not reconstruct reading order or render pixels. Treat
-// results as read-only. Without Provenance, no Document or DetailedPDF is retained.
+// results as read-only. Only DetailFull retains Document and Result.Details().
 type Result = parser.Result
 
 // ExtractedPage groups selected elements. An omitted category was not requested
 // or has no elements; Result.Content distinguishes those cases.
 type ExtractedPage = parser.ExtractedPage
 
-// ExtractedText is one text-show operation, with independently selected details.
+// ExtractedText is one text-show operation, with details selected by DetailLevel.
 type ExtractedText = parser.ExtractedText
 
 // TextPosition describes text before the show operation, before font scaling.
 type TextPosition = parser.TextPosition
 
 // ExtractedGraphic is a painted path, not a complete chart or figure. Geometry
-// is always in unrotated page user space, independent of Positions.
+// is always in unrotated page user space, at every detail level.
 type ExtractedGraphic = parser.ExtractedGraphic
 
 // ExtractedImage is one placement of a shared image resource.
@@ -289,14 +306,14 @@ type ExtractedImage = parser.ExtractedImage
 
 // ExtractedImageResource retains image metadata, not decoded pixels. ColorSpace
 // preserves the PDF value (including complex color-space parameters). Object is
-// present only with Provenance; its Stream can be used with Result.Document.
+// present only at DetailFull; its Stream can be used with Result.Document.
 type ExtractedImageResource = parser.ExtractedImageResource
 
 // ExtractedAnnotation contains annotation metadata; appearance streams are not executed.
 type ExtractedAnnotation = parser.ExtractedAnnotation
 
 // ResultDiagnostic reports a requested interpretation limitation. Page is
-// zero based, or -1 for a document-level issue. Span needs Provenance to resolve.
+// zero based, or -1 for a document-level issue. Span is present at DetailFull.
 type ResultDiagnostic = parser.ResultDiagnostic
 
 type Font = parser.Font

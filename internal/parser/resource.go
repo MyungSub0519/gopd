@@ -1,39 +1,43 @@
 package parser
 
+import (
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+)
+
 import "fmt"
 
 // Validate resource dictionaries only after reserving work for the full scan.
 // Repeated lookups must not turn one cached large dictionary into unbounded work.
-func (b *semanticBuilder) resourceDictionary(object Object) (Dictionary, error) {
+func (b *semanticBuilder) resourceDictionary(object pdfmodel.Object) (pdfmodel.Dictionary, error) {
 	var count int
 	switch value := object.Value.(type) {
-	case Dictionary:
+	case pdfmodel.Dictionary:
 		count = len(value.Entries)
-	case Stream:
+	case pdfmodel.Stream:
 		count = len(value.Dictionary.Entries)
 	default:
-		return Dictionary{}, fmt.Errorf("expected resource dictionary at %+v", object.Span)
+		return pdfmodel.Dictionary{}, fmt.Errorf("expected resource dictionary at %+v", object.Span)
 	}
 	if err := b.chargeSemanticWork(count, "resource dictionary entries", object.Span); err != nil {
-		return Dictionary{}, err
+		return pdfmodel.Dictionary{}, err
 	}
 	return semDictionary(object)
 }
 
-func (b *semanticBuilder) resolvedNumber(object Object) (float64, error) {
+func (b *semanticBuilder) resolvedNumber(object pdfmodel.Object) (float64, error) {
 	value, err := b.doc.ResolveObject(object)
 	if err != nil {
 		return 0, err
 	}
-	return Number(value)
+	return pdfmodel.Number(value)
 }
 
-func (b *semanticBuilder) resourceNumbers(object Object) ([]float64, error) {
+func (b *semanticBuilder) resourceNumbers(object pdfmodel.Object) ([]float64, error) {
 	value, err := b.doc.ResolveObject(object)
 	if err != nil {
 		return nil, err
 	}
-	array, ok := value.Value.(Array)
+	array, ok := value.Value.(pdfmodel.Array)
 	if !ok {
 		return nil, fmt.Errorf("expected resource number array at %+v", value.Span)
 	}
@@ -43,29 +47,29 @@ func (b *semanticBuilder) resourceNumbers(object Object) ([]float64, error) {
 	return b.numbers(value, -1)
 }
 
-func (c *contentInterpreter) resource(kind Name, name Name) (Object, error) {
-	if err := c.b.chargeSemanticWork(len(c.resources.Entries), "resource dictionary entries", Span{}); err != nil {
-		return Object{}, err
+func (c *contentInterpreter) resource(kind pdfmodel.Name, name pdfmodel.Name) (pdfmodel.Object, error) {
+	if err := c.b.chargeSemanticWork(len(c.resources.Entries), "resource dictionary entries", pdfmodel.Span{}); err != nil {
+		return pdfmodel.Object{}, err
 	}
 	group, ok, err := c.b.get(c.resources, kind)
 	if err != nil {
-		return Object{}, err
+		return pdfmodel.Object{}, err
 	}
 	if !ok {
-		return Object{}, fmt.Errorf("missing /%s resources", kind)
+		return pdfmodel.Object{}, fmt.Errorf("missing /%s resources", kind)
 	}
 	dict, err := c.b.resourceDictionary(group)
 	if err != nil {
-		return Object{}, err
+		return pdfmodel.Object{}, err
 	}
 	resource, err := dict.Get(name)
 	if err != nil {
-		return Object{}, fmt.Errorf("resource /%s: %w", name, err)
+		return pdfmodel.Object{}, fmt.Errorf("resource /%s: %w", name, err)
 	}
 	return resource, nil
 }
 
-func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
+func (c *contentInterpreter) xobject(name pdfmodel.Name, op Operation, index int) error {
 	input, err := c.resource("XObject", name)
 	if err != nil {
 		return err
@@ -74,7 +78,7 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 	if err != nil {
 		return err
 	}
-	stream, ok := object.Value.(Stream)
+	stream, ok := object.Value.(pdfmodel.Stream)
 	if !ok {
 		return fmt.Errorf("XObject is not a stream")
 	}
@@ -109,7 +113,7 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 
 	case "Form":
 		if c.formDepth >= 64 || c.formDepth >= c.b.maxDepth {
-			return fmt.Errorf("%w: Form depth limit", ErrLimit)
+			return fmt.Errorf("%w: Form depth limit", pdfmodel.ErrLimit)
 		}
 		if c.b.activeForms[object.Span] {
 			return fmt.Errorf("form cycle at %+v", object.Span)
@@ -133,7 +137,7 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 				if e != nil {
 					return e
 				}
-				child.state.graphics.CTM = c.state.graphics.CTM.Mul(Matrix(v))
+				child.state.graphics.CTM = c.state.graphics.CTM.Mul(pdfmodel.Matrix(v))
 				if !finiteMatrix(child.state.graphics.CTM) {
 					return fmt.Errorf("form transformation overflow")
 				}
@@ -187,7 +191,7 @@ func (c *contentInterpreter) xobject(name Name, op Operation, index int) error {
 	return nil
 }
 
-func (c *contentInterpreter) extGState(name Name, op Operation) error {
+func (c *contentInterpreter) extGState(name pdfmodel.Name, op Operation) error {
 	if !c.b.wants(ContentText) && !c.b.wantStyles() {
 		return nil
 	}
@@ -215,14 +219,14 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 			return err
 		}
 		// PDF Reference 1.6, 3.2.6: null-valued dictionary entries are absent.
-		if _, null := value.Value.(Null); null {
+		if _, null := value.Value.(pdfmodel.Null); null {
 			continue
 		}
 		switch entry.Key {
 		case "Type":
 		case "LW", "LC", "LJ", "ML":
-			mapped := map[Name]string{"LW": "w", "LC": "J", "LJ": "j", "ML": "M"}[entry.Key]
-			number, err := Number(value)
+			mapped := map[pdfmodel.Name]string{"LW": "w", "LC": "J", "LJ": "j", "ML": "M"}[entry.Key]
+			number, err := pdfmodel.Number(value)
 			if err != nil {
 				return err
 			}
@@ -230,7 +234,7 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 				return err
 			}
 		case "CA", "ca":
-			n, e := Number(value)
+			n, e := pdfmodel.Number(value)
 			if e != nil || n < 0 || n > 1 {
 				return fmt.Errorf("invalid alpha value")
 			}
@@ -240,7 +244,7 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 				c.state.graphics.FillAlpha = n
 			}
 		case "BM":
-			mode, ok := value.Value.(Name)
+			mode, ok := value.Value.(pdfmodel.Name)
 			if !ok {
 				if err := c.unsupported(op, "Blend mode arrays are retained without choosing a renderer-supported mode"); err != nil {
 					return err
@@ -249,7 +253,7 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 				c.state.graphics.BlendMode = mode
 			}
 		case "D":
-			array, ok := value.Value.(Array)
+			array, ok := value.Value.(pdfmodel.Array)
 			if !ok || len(array.Items) != 2 {
 				return fmt.Errorf("invalid ExtGState D")
 			}
@@ -265,13 +269,13 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 				return err
 			}
 		case "RI":
-			intent, ok := value.Value.(Name)
+			intent, ok := value.Value.(pdfmodel.Name)
 			if !ok {
 				return fmt.Errorf("ExtGState RI must be a name at %+v", value.Span)
 			}
 			c.state.graphics.RenderingIntent = intent
 		case "Font":
-			array, ok := value.Value.(Array)
+			array, ok := value.Value.(pdfmodel.Array)
 			if !ok || len(array.Items) != 2 {
 				return fmt.Errorf("invalid ExtGState Font")
 			}
@@ -286,7 +290,7 @@ func (c *contentInterpreter) extGState(name Name, op Operation) error {
 			c.state.text.font = font
 			c.state.text.size = size
 		case "SMask":
-			if mode, ok := value.Value.(Name); !ok || mode != "None" {
+			if mode, ok := value.Value.(pdfmodel.Name); !ok || mode != "None" {
 				if err := c.unsupported(op, "Soft masks are retained without evaluating their transparency"); err != nil {
 					return err
 				}

@@ -3,18 +3,19 @@ package parser
 import (
 	"fmt"
 
-	"github.com/MyungSub0519/gopd/internal/common/document"
+	"github.com/MyungSub0519/gopd/internal/document"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
 type DetailedPage struct {
 	Index       int
-	Object      Object
-	MediaBox    Rect
-	CropBox     Rect
+	Object      pdfmodel.Object
+	MediaBox    pdfmodel.Rect
+	CropBox     pdfmodel.Rect
 	Rotate      int
 	UserUnit    float64
-	Resources   Dictionary
-	Contents    []Object
+	Resources   pdfmodel.Dictionary
+	Contents    []pdfmodel.Object
 	Items       []ElementRef
 	Operations  []Operation
 	Annotations []int
@@ -27,7 +28,7 @@ type DetailedPage struct {
 // or has no elements; Result.Content distinguishes those cases.
 type ExtractedPage struct {
 	Index             int
-	MediaBox, CropBox Rect
+	MediaBox, CropBox pdfmodel.Rect
 	Rotate            int
 	UserUnit          float64
 	Texts             []ExtractedText       `json:",omitempty"`
@@ -40,16 +41,16 @@ type ExtractedPage struct {
 	Complete bool
 }
 
-func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, depth int) error {
+func (b *semanticBuilder) walkPages(input pdfmodel.Object, inherited map[pdfmodel.Name]pdfmodel.Object, depth int) error {
 	if err := b.chargeSemantic("page tree node", input.Span); err != nil {
 		return err
 	}
 	b.pageNodes++
 	if b.pageNodes > b.maxObjects {
-		return fmt.Errorf("%w: page tree visit limit at %+v", ErrLimit, input.Span)
+		return fmt.Errorf("%w: page tree visit limit at %+v", pdfmodel.ErrLimit, input.Span)
 	}
 	if depth >= b.maxDepth {
-		return fmt.Errorf("%w: page tree depth limit at %+v", ErrLimit, input.Span)
+		return fmt.Errorf("%w: page tree depth limit at %+v", pdfmodel.ErrLimit, input.Span)
 	}
 	object, err := b.doc.ResolveObject(input)
 	if err != nil {
@@ -64,11 +65,11 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 	if err != nil {
 		return err
 	}
-	values := make(map[Name]Object, len(inherited))
+	values := make(map[pdfmodel.Name]pdfmodel.Object, len(inherited))
 	for key, value := range inherited {
 		values[key] = value
 	}
-	for _, key := range []Name{"MediaBox", "CropBox", "Resources", "Rotate"} {
+	for _, key := range []pdfmodel.Name{"MediaBox", "CropBox", "Resources", "Rotate"} {
 		if key == "Resources" && !b.wantPageContent() {
 			continue
 		}
@@ -89,12 +90,12 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 		if err != nil {
 			return err
 		}
-		array, isArray := kids.Value.(Array)
+		array, isArray := kids.Value.(pdfmodel.Array)
 		if !ok || !isArray {
 			return fmt.Errorf("page tree node missing Kids array at %+v", object.Span)
 		}
 		if len(array.Items) > b.maxObjects {
-			return fmt.Errorf("%w: page tree object limit at %+v", ErrLimit, kids.Span)
+			return fmt.Errorf("%w: page tree object limit at %+v", pdfmodel.ErrLimit, kids.Span)
 		}
 		for _, kid := range array.Items {
 			if err = b.walkPages(kid, values, depth+1); err != nil {
@@ -107,7 +108,7 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 		return fmt.Errorf("page tree node has Type /%s at %+v", kind, object.Span)
 	}
 	if len(b.pdf.Pages) >= b.maxObjects {
-		return fmt.Errorf("%w: page count limit at %+v", ErrLimit, object.Span)
+		return fmt.Errorf("%w: page count limit at %+v", pdfmodel.ErrLimit, object.Span)
 	}
 	page := DetailedPage{Index: len(b.pdf.Pages), Object: object, UserUnit: 1, Complete: true}
 	media, ok := values["MediaBox"]
@@ -132,7 +133,7 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 		}
 	}
 	if rotate, ok := values["Rotate"]; ok {
-		value, e := Int(rotate)
+		value, e := pdfmodel.Int(rotate)
 		if e != nil || value%90 != 0 {
 			return fmt.Errorf("invalid page Rotate at %+v", rotate.Span)
 		}
@@ -141,7 +142,7 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 	if unit, ok, e := b.get(dict, "UserUnit"); e != nil {
 		return e
 	} else if ok {
-		page.UserUnit, e = Number(unit)
+		page.UserUnit, e = pdfmodel.Number(unit)
 		if e != nil || page.UserUnit <= 0 {
 			return fmt.Errorf("invalid page UserUnit at %+v", unit.Span)
 		}
@@ -151,11 +152,11 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 			return e
 		} else if ok {
 			switch value := contents.Value.(type) {
-			case Array:
+			case pdfmodel.Array:
 				page.Contents = value.Items
-			case Stream:
-				page.Contents = []Object{contents}
-			case Null:
+			case pdfmodel.Stream:
+				page.Contents = []pdfmodel.Object{contents}
+			case pdfmodel.Null:
 			default:
 				return fmt.Errorf("invalid Page Contents at %+v", contents.Span)
 			}
@@ -196,14 +197,14 @@ func (b *semanticBuilder) walkPages(input Object, inherited map[Name]Object, dep
 }
 
 func (b *semanticBuilder) interpretPage(page DetailedPage) error {
-	interpreter := &contentInterpreter{b: b, page: page.Index, resources: page.Resources, state: initialContentState(), textMatrix: IdentityMatrix(), lineMatrix: IdentityMatrix(), positionComplete: true}
-	var inputs []Span
+	interpreter := &contentInterpreter{b: b, page: page.Index, resources: page.Resources, state: initialContentState(), textMatrix: pdfmodel.IdentityMatrix(), lineMatrix: pdfmodel.IdentityMatrix(), positionComplete: true}
+	var inputs []pdfmodel.Span
 	for _, content := range page.Contents {
 		object, e := b.doc.ResolveObject(content)
 		if e != nil {
 			return e
 		}
-		stream, ok := object.Value.(Stream)
+		stream, ok := object.Value.(pdfmodel.Stream)
 		if !ok {
 			return fmt.Errorf("page Contents member is not a stream at %+v", object.Span)
 		}
@@ -211,7 +212,7 @@ func (b *semanticBuilder) interpretPage(page DetailedPage) error {
 		if e != nil {
 			return e
 		}
-		inputs = append(inputs, Span{Source: source.ID, End: source.Size})
+		inputs = append(inputs, pdfmodel.Span{Source: source.ID, End: source.Size})
 	}
 	if len(inputs) > 0 {
 		source, e := document.JoinContentSources(b.doc, inputs)

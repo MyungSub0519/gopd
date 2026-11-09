@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/MyungSub0519/gopd/internal/document"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
 // File entry points compare the user-visible APIs on the checked-in fixture.
@@ -23,7 +26,7 @@ func BenchmarkExtract(b *testing.B) {
 				} else {
 					options := ParseOptions{}
 					if mode == "all" {
-						options = ParseOptions{Content: ContentAll, Positions: true, Styles: true, Glyphs: true}
+						options = ParseOptions{Content: ContentAll, Detail: DetailFull}
 					}
 					_, err = ParseFile("../../testdata/synthetic.pdf", options)
 				}
@@ -53,7 +56,7 @@ func BenchmarkExtractDense(b *testing.B) {
 				}
 				options := ParseOptions{}
 				if mode == "all" {
-					options = ParseOptions{Content: ContentAll, Positions: true, Styles: true, Glyphs: true}
+					options = ParseOptions{Content: ContentAll, Detail: DetailFull}
 				}
 				return ParseReader(reader, int64(len(data)), options)
 			}
@@ -101,9 +104,8 @@ func FuzzExtractReader(f *testing.F) {
 			kind = ContentText
 		}
 		options := ParseOptions{
-			Content: kind, Positions: flags&1 != 0, Styles: flags&2 != 0,
-			Glyphs: flags&4 != 0 && kind&ContentText != 0, Provenance: flags&8 != 0,
-			ReadOptions: ReadOptions{Limits: Limits{
+			Content: kind, Detail: DetailLevel(flags % 3),
+			ReadOptions: document.ReadOptions{Limits: pdfmodel.Limits{
 				MaxDepth: 12, MaxObjects: 128, MaxValues: 2048, MaxSemanticObjects: 256,
 				MaxContentBytes: 32 << 10, MaxDecodedBytes: 32 << 10, MaxTokenBytes: 4096,
 			}},
@@ -112,8 +114,11 @@ func FuzzExtractReader(f *testing.F) {
 		if result == nil {
 			t.Fatalf("valid container lost partial result: %v", err)
 		}
-		if (result.Document != nil) != options.Provenance {
+		if (result.Document != nil) != (options.Detail == DetailFull) {
 			t.Fatal("source retention disagrees with options")
+		}
+		if (result.Details() != nil) != (options.Detail == DetailFull) {
+			t.Fatal("detailed view disagrees with options")
 		}
 		for _, page := range result.Pages {
 			if kind&ContentText == 0 && len(page.Texts) != 0 {
@@ -172,22 +177,28 @@ func TestExtractReviewSkipsUnrequestedShading(t *testing.T) {
 	}
 }
 
-func TestExtractReviewValueBudgetOnSkippedStyleOperands(t *testing.T) {
+func TestExtractValueBudgetAcrossDetailLevels(t *testing.T) {
 	data := semanticFixture(
 		`<< /Type /Catalog /Pages 2 0 R >>`,
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 10 10] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
 		semanticStream("", strings.Repeat(`[1 2] 0 d `, 17)),
 	)
-	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{
-		Provenance:  true,
-		ReadOptions: ReadOptions{Limits: Limits{MaxValues: 64}},
-	})
-	if !errors.Is(err, ErrLimit) || got == nil || len(got.Pages) != 1 {
-		t.Fatalf("skipped operands bypassed budget: result=%+v err=%v", got, err)
-	}
-	if got.Pages[0].Complete || len(got.Pages[0].Operations) != 16 {
-		t.Fatalf("unexpected partial state: %+v", got.Pages[0])
+	for _, level := range []DetailLevel{DetailBasic, DetailLayout, DetailFull} {
+		got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{
+			Detail:      level,
+			ReadOptions: document.ReadOptions{Limits: pdfmodel.Limits{MaxValues: 64}},
+		})
+		if !errors.Is(err, pdfmodel.ErrLimit) || got == nil || len(got.Pages) != 1 {
+			t.Fatalf("operands bypassed budget: level=%d result=%+v err=%v", level, got, err)
+		}
+		wantOperations := 0
+		if level == DetailFull {
+			wantOperations = 16
+		}
+		if got.Pages[0].Complete || len(got.Pages[0].Operations) != wantOperations {
+			t.Fatalf("unexpected partial state: level=%d page=%+v", level, got.Pages[0])
+		}
 	}
 }
 
@@ -208,20 +219,22 @@ func TestExtractReviewLexicalErrorKeepsPartialOutput(t *testing.T) {
 	}
 }
 
-func TestExtractReviewProvenanceOwnsSnapshot(t *testing.T) {
+func TestExtractReviewProvenanceRetainsSourceAccess(t *testing.T) {
 	data := fontFixture(`<< /Subtype /Type1 /BaseFont /Helvetica >>`, `BT /F 12 Tf (A) Tj ET`)
-	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Provenance: true})
+	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Detail: DetailFull})
 	if err != nil {
 		t.Fatal(err)
 	}
-	clear(data)
+	if got != nil {
+		defer got.Close()
+	}
 	text := got.Pages[0].Texts[0]
 	if text.Unicode != "A" || text.Source == nil || got.Document == nil {
-		t.Fatalf("missing owned extraction: %+v", text)
+		t.Fatalf("missing extraction provenance: %+v", text)
 	}
 	operand, err := got.Document.Bytes(text.Source.Spans[0])
 	if err != nil || string(operand) != "(A)" {
-		t.Fatalf("source snapshot changed with caller buffer: %q, %v", operand, err)
+		t.Fatalf("source span does not match operand: %q, %v", operand, err)
 	}
 }
 
@@ -257,7 +270,7 @@ func TestExtractSplitContentsAndClipping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Glyphs: true, Styles: true, Provenance: true})
+	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Detail: DetailFull})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,9 +305,9 @@ func TestExtractFormLimitsWithoutProvenance(t *testing.T) {
 		t.Fatalf("reused Form: %v", err)
 	}
 	_, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{
-		ReadOptions: ReadOptions{Limits: Limits{MaxContentBytes: 30}},
+		ReadOptions: document.ReadOptions{Limits: pdfmodel.Limits{MaxContentBytes: 30}},
 	})
-	if !errors.Is(err, ErrLimit) {
+	if !errors.Is(err, pdfmodel.ErrLimit) {
 		t.Fatalf("skipped drawing bypassed cumulative Form bytes: %v", err)
 	}
 }
@@ -316,7 +329,10 @@ func TestExtractAnnotationsOnly(t *testing.T) {
 }
 
 func TestExtractImageSource(t *testing.T) {
-	got, err := ParseFile("../../testdata/synthetic.pdf", ParseOptions{Content: ContentImages, Provenance: true})
+	got, err := ParseFile("../../testdata/synthetic.pdf", ParseOptions{Content: ContentImages, Detail: DetailFull})
+	if got != nil {
+		defer got.Close()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +343,7 @@ func TestExtractImageSource(t *testing.T) {
 	if resource.Object == nil || resource.Width != 2 || resource.Height != 2 {
 		t.Fatal("missing image metadata")
 	}
-	stream, ok := resource.Object.Value.(Stream)
+	stream, ok := resource.Object.Value.(pdfmodel.Stream)
 	if !ok {
 		t.Fatal("image source is not a stream")
 	}
@@ -335,7 +351,7 @@ func TestExtractImageSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := got.Document.Bytes(Span{Source: source.ID, End: source.Size})
+	data, err := got.Document.Bytes(pdfmodel.Span{Source: source.ID, End: source.Size})
 	if err != nil || !bytes.Equal(data, []byte{255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255}) {
 		t.Fatalf("image data: %x, %v", data, err)
 	}
@@ -367,14 +383,20 @@ func TestExtractInlineImageWithoutProvenance(t *testing.T) {
 
 func TestExtractSelections(t *testing.T) {
 	full, err := Open("../../testdata/synthetic.pdf")
+	if full != nil {
+		defer full.Close()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	for mask := ContentKind(1); mask <= ContentAll; mask++ {
 		t.Run(strconv.Itoa(int(mask)), func(t *testing.T) {
 			got, err := ParseFile("../../testdata/synthetic.pdf", ParseOptions{
-				Content: mask, Positions: true, Styles: true,
+				Content: mask, Detail: DetailLayout,
 			})
+			if got != nil {
+				defer got.Close()
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -433,6 +455,9 @@ func TestExtractSelections(t *testing.T) {
 
 func TestExtractDefaultAndJSON(t *testing.T) {
 	got, err := ParseFile("../../testdata/synthetic.pdf", ParseOptions{})
+	if got != nil {
+		defer got.Close()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,11 +492,11 @@ func (r *extractionReader) ReadAt(p []byte, off int64) (int, error) {
 	return r.Reader.ReadAt(p, off)
 }
 
-func TestExtractReaderOptionsAndSnapshot(t *testing.T) {
+func TestExtractReaderOptionsAndSharedBuffer(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [] /Count 0 >>`)
 	r := &extractionReader{Reader: bytes.NewReader(data)}
 	for _, options := range []ParseOptions{
-		{Content: ContentAll << 1}, {Content: ContentImages, Glyphs: true}, {ReadOptions: ReadOptions{MaxFileBytes: -1}},
+		{Content: ContentAll << 1}, {Detail: DetailLevel(255)}, {ReadOptions: document.ReadOptions{MaxFileBytes: -1}},
 	} {
 		if result, err := ParseReader(r, int64(len(data)), options); err == nil || result != nil {
 			t.Fatal("invalid options accepted")
@@ -484,12 +509,15 @@ func TestExtractReaderOptionsAndSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r.reads != 1 {
-		t.Fatalf("input snapshots=%d want=1", r.reads)
+		t.Fatalf("small input backing reads=%d want=1", r.reads)
 	}
 }
 
 func TestExtractGlyphsAndProvenance(t *testing.T) {
-	got, err := ParseFile("../../testdata/synthetic.pdf", ParseOptions{Glyphs: true, Provenance: true})
+	got, err := ParseFile("../../testdata/synthetic.pdf", ParseOptions{Detail: DetailFull})
+	if got != nil {
+		defer got.Close()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,8 +575,8 @@ func TestExtractErrorsAndLimits(t *testing.T) {
 	if got.Pages[0].Complete {
 		t.Fatal("failed page marked complete")
 	}
-	_, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{ReadOptions: ReadOptions{Limits: Limits{MaxContentBytes: 1}}})
-	if !errors.Is(err, ErrLimit) {
+	_, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{ReadOptions: document.ReadOptions{Limits: pdfmodel.Limits{MaxContentBytes: 1}}})
+	if !errors.Is(err, pdfmodel.ErrLimit) {
 		t.Fatalf("limit error=%v", err)
 	}
 	_, err = ParseReader(bytes.NewReader(nil), 1, ParseOptions{})

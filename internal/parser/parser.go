@@ -1,3 +1,10 @@
+// Package parser interprets PDF pages, content operations, fonts, images, and
+// annotations into basic, detailed, or selectively extracted results. It owns
+// the shared content state and uses document, syntax, and
+// pdfmodel for input, object access, syntax, and PDF values.
+// The root gopd package exposes its entry points and result types to callers.
+// Content-specific files keep their result types, interpretation, and emission
+// together; one interpreter preserves execution order and shared graphics state.
 package parser
 
 import (
@@ -5,13 +12,13 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/MyungSub0519/gopd/internal/common/document"
-	"github.com/MyungSub0519/gopd/internal/common/pdfmodel"
-	"github.com/MyungSub0519/gopd/internal/common/syntax"
+	"github.com/MyungSub0519/gopd/internal/document"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
-// DetailedPDF is a semantic snapshot. Slices and the underlying Document are read-only
-// by convention. Elements follow content execution order, not reading order.
+// DetailedPDF retains eager semantic results and a Document for lazy access.
+// Slices and the Document are read-only by convention. Elements follow content
+// execution order, not reading order. Close releases the retained Document.
 type DetailedPDF struct {
 	Pages           []DetailedPage
 	Texts           []DetailedText
@@ -20,10 +27,20 @@ type DetailedPDF struct {
 	ImageResources  []ImageResource
 	Fonts           []Font
 	Annotations     []Annotation
-	Structure       *Structure
-	Document        *Document
-	Diagnostics     []Diagnostic
+	Structure       *pdfmodel.Structure
+	Document        *document.Document
+	Diagnostics     []pdfmodel.Diagnostic
 	diagnosticPages []int // emission context, including reused Form streams
+}
+
+// Close releases the shared Document and invalidates its sources and lazy
+// methods. Materialized results remain usable. It is safe to call more than
+// once or on a nil result, and never closes a caller-owned reader.
+func (p *DetailedPDF) Close() error {
+	if p == nil || p.Document == nil {
+		return nil
+	}
+	return p.Document.Close()
 }
 
 type ElementKind uint8
@@ -42,17 +59,17 @@ type ElementRef struct {
 type semanticBuilder struct {
 	result             *Result
 	fontInfos          map[int]*FontInfo
-	doc                *Document
+	doc                *document.Document
 	pdf                *DetailedPDF
-	fonts              map[Span]int
-	images             map[Span]int
-	activeForms        map[Span]bool
-	activePages        map[Span]bool
+	fonts              map[pdfmodel.Span]int
+	images             map[pdfmodel.Span]int
+	activeForms        map[pdfmodel.Span]bool
+	activePages        map[pdfmodel.Span]bool
 	page               int
 	operations         int
 	pageNodes          int
 	glyphCodes         int
-	cmaps              map[Span]*CMap
+	cmaps              map[pdfmodel.Span]*CMap
 	cmapEntries        int
 	unicodeBytes       int64
 	maxUnicodeBytes    int64
@@ -68,30 +85,37 @@ type semanticBuilder struct {
 	semanticValues     int
 }
 
-// ParsePDF snapshots a file and returns basic text and graphics grouped by page.
+// ParsePDF reads a file and returns basic text and graphics grouped by page.
 // It retains eager detailed analysis for Details; it is not selective parsing.
 // A semantic failure can return both a partial PDF and an error. Callers must
-// check err before treating the result as successful. No Close call is required.
+// check err and close any non-nil result, including partial results.
 func ParsePDF(path string) (*PDF, error) {
 	detail, err := Open(path)
 	return basicPDF(detail), err
 }
 
 // Open returns detailed contents, resources, operations, and byte provenance.
-// Use ParsePDF for a basic result. Both functions close the input file.
+// Close any non-nil result to release its input file, including partial results.
 func Open(path string) (*DetailedPDF, error) {
-	d, err := LoadDocument(path)
+	d, err := document.Load(path)
 	if err != nil {
+		if d != nil {
+			err = errors.Join(err, d.Close())
+		}
 		return nil, err
 	}
 	return BuildPDF(d)
 }
 
-// Read parses a bounded snapshot of r and returns detailed page contents.
-// The caller retains ownership of r; no Close call is required on the result.
+// Read parses r through a bounded buffer and returns detailed page contents.
+// Keep r open and unchanged until closing the returned result. Close any non-nil
+// result, including partial results. The caller retains ownership of r.
 func Read(r io.ReaderAt, size int64) (*DetailedPDF, error) {
-	d, err := ReadDocument(r, size)
+	d, err := document.Read(r, size)
 	if err != nil {
+		if d != nil {
+			err = errors.Join(err, d.Close())
+		}
 		return nil, err
 	}
 	return BuildPDF(d)
@@ -100,11 +124,12 @@ func Read(r io.ReaderAt, size int64) (*DetailedPDF, error) {
 // BuildPDF interprets page contents. Invalid syntax and traversal limits return
 // an error and any partial result. Unsupported effects are retained as operations
 // and diagnostics. No pixel rendering, OCR, or reading-order reconstruction occurs.
-func BuildPDF(d *Document) (*DetailedPDF, error) {
+// The result shares d; closing either closes their shared source access.
+func BuildPDF(d *document.Document) (*DetailedPDF, error) {
 	return buildPDF(d, nil)
 }
 
-func buildPDF(d *Document, result *Result) (*DetailedPDF, error) {
+func buildPDF(d *document.Document, result *Result) (*DetailedPDF, error) {
 	if d == nil {
 		return nil, fmt.Errorf("nil Document")
 	}
@@ -116,15 +141,15 @@ func buildPDF(d *Document, result *Result) (*DetailedPDF, error) {
 		result:      result,
 		doc:         d,
 		pdf:         p,
-		fonts:       make(map[Span]int),
-		images:      make(map[Span]int),
-		activeForms: make(map[Span]bool),
-		activePages: make(map[Span]bool),
+		fonts:       make(map[pdfmodel.Span]int),
+		images:      make(map[pdfmodel.Span]int),
+		activeForms: make(map[pdfmodel.Span]bool),
+		activePages: make(map[pdfmodel.Span]bool),
 		page:        -1,
 		maxDepth:    128,
 		maxObjects:  1000000,
 	}
-	b.cmaps = make(map[Span]*CMap)
+	b.cmaps = make(map[pdfmodel.Span]*CMap)
 	b.maxUnicodeBytes = 256 << 20
 	if d.Options.Limits.MaxDecodedBytes > 0 && d.Options.Limits.MaxDecodedBytes < b.maxUnicodeBytes {
 		b.maxUnicodeBytes = d.Options.Limits.MaxDecodedBytes
@@ -159,125 +184,81 @@ func buildPDF(d *Document, result *Result) (*DetailedPDF, error) {
 	if err != nil {
 		return p, err
 	}
-	err = b.walkPages(pages, map[Name]Object{}, 0)
+	err = b.walkPages(pages, map[pdfmodel.Name]pdfmodel.Object{}, 0)
 	return p, err
 }
 
-// LoadDocument snapshots a file and prepares low-level object access. It closes
-// the file before returning. At most one ReadOptions value may be supplied;
-// a structural error can return a partial Document together with the error.
-func LoadDocument(path string, options ...ReadOptions) (*Document, error) {
-	return document.Load(path, options...)
-}
-
-// ReadDocument snapshots r; it never closes a caller-owned ReaderAt.
-func ReadDocument(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
-	return document.Read(r, size, options...)
-}
-
-// Lex scans one complete byte range, preserving whitespace and comments as
-// tokens and appending an EOF token. Spans use offset as the range's absolute
-// position in source. Tokens are limited to 16 MiB each and the result to
-// 1,048,576 non-EOF tokens. On error the valid token prefix is returned.
-// Stream payloads must be excluded by the caller; they are not PDF syntax.
-func Lex(data []byte, source SourceID, offset int64) ([]Token, error) {
-	return syntax.Lex(data, source, offset)
-}
-
-// ParseObject parses one direct PDF object or indirect reference. consumed is
-// relative to data and includes leading whitespace and comments, but excludes
-// trailing trivia. Spans are absolute within source and exclude leading trivia.
-// Bare keywords other than true, false and null are not object values.
-// Default limits are 256 container levels, 16 MiB per token and 1,048,576 values.
-func ParseObject(data []byte, source SourceID, offset int64) (object Object, consumed int, err error) {
-	return syntax.ParseObject(data, source, offset)
-}
-
-// Int converts a direct PDF Integer into int64, rejecting other types and
-// out-of-range values. Resolve indirect references before calling Int.
-func Int(object Object) (int64, error) { return pdfmodel.Int(object) }
-
-// Number converts a direct Integer or Real into a finite float64. It does not
-// resolve indirect references or preserve exact decimal precision.
-func Number(object Object) (float64, error) { return pdfmodel.Number(object) }
-
-// IsStream reports whether object directly contains a Stream. It does not
-// follow references; use Document.ResolveObject first when necessary.
-func IsStream(object Object) bool { return pdfmodel.IsStream(object) }
-
-// IdentityMatrix returns a transformation that leaves coordinates unchanged.
-func IdentityMatrix() Matrix { return pdfmodel.IdentityMatrix() }
-
-func (b *semanticBuilder) get(dict Dictionary, key Name) (Object, bool, error) {
+func (b *semanticBuilder) get(dict pdfmodel.Dictionary, key pdfmodel.Name) (pdfmodel.Object, bool, error) {
 	object, err := dict.Get(key)
-	if errors.Is(err, ErrMissingKey) {
-		return Object{}, false, nil
+	if errors.Is(err, pdfmodel.ErrMissingKey) {
+		return pdfmodel.Object{}, false, nil
 	}
 	if err != nil {
-		return Object{}, false, err
+		return pdfmodel.Object{}, false, err
 	}
 	object, err = b.doc.ResolveObject(object)
 	if err == nil {
-		if _, null := object.Value.(Null); null {
-			return Object{}, false, nil
+		if _, null := object.Value.(pdfmodel.Null); null {
+			return pdfmodel.Object{}, false, nil
 		}
 	}
 	return object, true, err
 }
 
-func (b *semanticBuilder) name(dict Dictionary, key Name) (Name, error) {
+func (b *semanticBuilder) name(dict pdfmodel.Dictionary, key pdfmodel.Name) (pdfmodel.Name, error) {
 	object, ok, err := b.get(dict, key)
 	if err != nil || !ok {
 		return "", err
 	}
-	name, ok := object.Value.(Name)
+	name, ok := object.Value.(pdfmodel.Name)
 	if !ok {
 		return "", fmt.Errorf("/%s must be a name at %+v", key, object.Span)
 	}
 	return name, nil
 }
 
-func semDictionary(object Object) (Dictionary, error) {
-	var dict Dictionary
+func semDictionary(object pdfmodel.Object) (pdfmodel.Dictionary, error) {
+	var dict pdfmodel.Dictionary
 	switch value := object.Value.(type) {
-	case Dictionary:
+	case pdfmodel.Dictionary:
 		dict = value
-	case Stream:
+	case pdfmodel.Stream:
 		dict = value.Dictionary
 	default:
-		return Dictionary{}, fmt.Errorf("expected dictionary at %+v", object.Span)
+		return pdfmodel.Dictionary{}, fmt.Errorf("expected dictionary at %+v", object.Span)
 	}
-	seen := make(map[Name]bool, len(dict.Entries))
+	seen := make(map[pdfmodel.Name]bool, len(dict.Entries))
 	for _, entry := range dict.Entries {
 		if seen[entry.Key] {
-			return Dictionary{}, fmt.Errorf("duplicate dictionary key /%s at %+v", entry.Key, entry.KeySpan)
+			return pdfmodel.Dictionary{}, fmt.Errorf("duplicate dictionary key /%s at %+v", entry.Key, entry.KeySpan)
 		}
 		seen[entry.Key] = true
 	}
 	return dict, nil
 }
 
-func semID(object Object) ObjectID {
-	if ref, ok := object.Value.(Reference); ok {
+func semID(object pdfmodel.Object) pdfmodel.ObjectID {
+	if ref, ok := object.Value.(pdfmodel.Reference); ok {
 		return ref.ID
 	}
-	return ObjectID{}
+	return pdfmodel.ObjectID{}
 }
 
-func (b *semanticBuilder) diag(code, message string, span Span) error {
+func (b *semanticBuilder) diag(code, message string, span pdfmodel.Span) error {
 	if err := b.chargeSemantic("diagnostic", span); err != nil {
 		return err
 	}
 	bytes := int64(len(code)) + int64(len(message))
 	if bytes > b.maxUnicodeBytes-b.unicodeBytes {
-		return fmt.Errorf("%w: expanded diagnostic byte limit at %+v", ErrLimit, span)
+		return fmt.Errorf("%w: expanded diagnostic byte limit at %+v", pdfmodel.ErrLimit, span)
 	}
 	b.unicodeBytes += bytes
-	diagnostic := Diagnostic{Severity: SeverityWarning, Code: code, Message: message, Span: span}
-	if b.result == nil {
+	diagnostic := pdfmodel.Diagnostic{Severity: pdfmodel.SeverityWarning, Code: code, Message: message, Span: span}
+	if b.keepDetails() {
 		b.pdf.Diagnostics = append(b.pdf.Diagnostics, diagnostic)
 		b.pdf.diagnosticPages = append(b.pdf.diagnosticPages, b.page)
-	} else {
+	}
+	if b.result != nil {
 		b.result.addDiagnostic(diagnostic, b.page)
 	}
 	if b.page >= 0 {
@@ -286,19 +267,19 @@ func (b *semanticBuilder) diag(code, message string, span Span) error {
 	return nil
 }
 
-func (b *semanticBuilder) rect(object Object) (Rect, error) {
+func (b *semanticBuilder) rect(object pdfmodel.Object) (pdfmodel.Rect, error) {
 	values, err := b.numbers(object, 4)
 	if err != nil {
-		return Rect{}, err
+		return pdfmodel.Rect{}, err
 	}
-	return Rect{
-		Min: Point{X: min(values[0], values[2]), Y: min(values[1], values[3])},
-		Max: Point{X: max(values[0], values[2]), Y: max(values[1], values[3])},
+	return pdfmodel.Rect{
+		Min: pdfmodel.Point{X: min(values[0], values[2]), Y: min(values[1], values[3])},
+		Max: pdfmodel.Point{X: max(values[0], values[2]), Y: max(values[1], values[3])},
 	}, nil
 }
 
-func (b *semanticBuilder) numbers(object Object, n int) ([]float64, error) {
-	array, ok := object.Value.(Array)
+func (b *semanticBuilder) numbers(object pdfmodel.Object, n int) ([]float64, error) {
+	array, ok := object.Value.(pdfmodel.Array)
 	if !ok {
 		return nil, fmt.Errorf("expected number array at %+v", object.Span)
 	}
@@ -311,7 +292,7 @@ func (b *semanticBuilder) numbers(object Object, n int) ([]float64, error) {
 		if err != nil {
 			return nil, err
 		}
-		out[i], err = Number(value)
+		out[i], err = pdfmodel.Number(value)
 		if err != nil {
 			return nil, err
 		}
@@ -320,13 +301,13 @@ func (b *semanticBuilder) numbers(object Object, n int) ([]float64, error) {
 }
 
 // Visits count even when the underlying object or decoded source is cached.
-func (b *semanticBuilder) chargeSemantic(kind string, span Span) error {
+func (b *semanticBuilder) chargeSemantic(kind string, span pdfmodel.Span) error {
 	return b.chargeSemanticWork(1, kind, span)
 }
 
-func (b *semanticBuilder) chargeSemanticWork(count int, kind string, span Span) error {
+func (b *semanticBuilder) chargeSemanticWork(count int, kind string, span pdfmodel.Span) error {
 	if count > b.maxSemanticObjects-b.semanticObjects {
-		return fmt.Errorf("%w: semantic object limit while visiting %s at %+v", ErrLimit, kind, span)
+		return fmt.Errorf("%w: semantic object limit while visiting %s at %+v", pdfmodel.ErrLimit, kind, span)
 	}
 	b.semanticObjects += count
 	return nil
@@ -334,15 +315,15 @@ func (b *semanticBuilder) chargeSemanticWork(count int, kind string, span Span) 
 
 // Content operands, expanded numeric resources and retained style components
 // share the BuildPDF value budget; the Document's syntax budget is independent.
-func (b *semanticBuilder) chargeValues(count int, kind string, span Span) error {
+func (b *semanticBuilder) chargeValues(count int, kind string, span pdfmodel.Span) error {
 	if count > b.maxValues-b.semanticValues {
-		return fmt.Errorf("%w: semantic value count limit for %s at %+v", ErrLimit, kind, span)
+		return fmt.Errorf("%w: semantic value count limit for %s at %+v", pdfmodel.ErrLimit, kind, span)
 	}
 	b.semanticValues += count
 	return nil
 }
 
-func (b *semanticBuilder) chargeStyle(state GraphicsState, span Span) error {
+func (b *semanticBuilder) chargeStyle(state GraphicsState, span pdfmodel.Span) error {
 	if !b.wantStyles() {
 		return nil
 	}

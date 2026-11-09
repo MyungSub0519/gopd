@@ -8,25 +8,25 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/MyungSub0519/gopd/internal/common/pdfmodel"
-	"github.com/MyungSub0519/gopd/internal/common/syntax"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
 // FontInfo contains display metadata, shared by original font resource identity.
 // FontSize belongs to Text because the same font can be used at different sizes.
 type FontInfo struct {
-	BaseFont Name
-	Subtype  Name
+	BaseFont pdfmodel.Name
+	Subtype  pdfmodel.Name
 }
 
 type Font struct {
-	Object               Object
-	ID                   ObjectID
-	Subtype              Name
-	BaseFont             Name
-	Encoding             Object
+	Object               pdfmodel.Object
+	ID                   pdfmodel.ObjectID
+	Subtype              pdfmodel.Name
+	BaseFont             pdfmodel.Name
+	Encoding             pdfmodel.Object
 	ToUnicode            *CMap
-	Embedded             *Object
+	Embedded             *pdfmodel.Object
 	DecodeSupported      bool
 	WidthsKnown          bool
 	PositioningSupported bool
@@ -39,16 +39,16 @@ type Font struct {
 	widthScale           float64
 }
 
-// effectiveWidthScale returns widthScale, defaulting to 0.001 when unset so
-// the zero Font and non-Type3 fonts keep the historical advance formula.
+// effectiveWidthScale maps stored glyph widths to text space. Type3 matrices
+// may have a zero horizontal component (ISO 32000-1:2008, Table 112).
 func (font *Font) effectiveWidthScale() float64 {
-	if font.widthScale == 0 {
+	if font.Subtype != "Type3" {
 		return 0.001
 	}
 	return font.widthScale
 }
 
-func (b *semanticBuilder) font(resource Object) (int, error) {
+func (b *semanticBuilder) font(resource pdfmodel.Object) (int, error) {
 	object, err := b.doc.ResolveObject(resource)
 	if err != nil {
 		return -1, err
@@ -101,7 +101,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 			if !ok {
 				return -1, fmt.Errorf("Type0 font missing DescendantFonts at %+v", object.Span)
 			}
-			array, ok := descendants.Value.(Array)
+			array, ok := descendants.Value.(pdfmodel.Array)
 			if !ok || len(array.Items) != 1 {
 				return -1, fmt.Errorf("invalid DescendantFonts at %+v", descendants.Span)
 			}
@@ -114,7 +114,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 				return -1, e
 			}
 		}
-		encoding, ok := font.Encoding.Value.(Name)
+		encoding, ok := font.Encoding.Value.(pdfmodel.Name)
 		font.vertical = ok && strings.HasSuffix(string(encoding), "-V")
 		font.PositioningSupported = encoding == "Identity-H"
 		if b.wantPositions() && (!ok || (encoding != "Identity-H" && encoding != "Identity-V")) {
@@ -128,7 +128,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 			if value, ok, e := b.get(metricDict, "DW"); e != nil {
 				return -1, e
 			} else if ok {
-				font.defaultWidth, e = Number(value)
+				font.defaultWidth, e = pdfmodel.Number(value)
 				if e != nil {
 					return -1, e
 				}
@@ -145,7 +145,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 		if first, ok, e := b.get(dict, "FirstChar"); e != nil {
 			return -1, e
 		} else if ok {
-			start, e := Int(first)
+			start, e := pdfmodel.Int(first)
 			if e != nil || start < 0 || start > 255 {
 				return -1, fmt.Errorf("invalid font FirstChar at %+v", first.Span)
 			}
@@ -154,7 +154,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 				return -1, e
 			}
 			if exists {
-				array, ok := widths.Value.(Array)
+				array, ok := widths.Value.(pdfmodel.Array)
 				if !ok || int64(len(array.Items))+start > 256 {
 					return -1, fmt.Errorf("invalid simple font Widths at %+v", widths.Span)
 				}
@@ -166,7 +166,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 					if e != nil {
 						return -1, e
 					}
-					width, e := Number(value)
+					width, e := pdfmodel.Number(value)
 					if e != nil {
 						return -1, e
 					}
@@ -182,17 +182,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 		if err := b.type3CharProcWidths(&font); err != nil {
 			return -1, err
 		}
-		// Dictionary widths are glyph-space; normalize them to the 1000-unit
-		// convention so the advance formula stays uniform across subtypes.
-		scale := font.effectiveWidthScale()
-		if scale != 0.001 {
-			for code, width := range font.widths {
-				font.widths[code] = width * scale * 1000
-			}
-			if font.defaultWidthKnown {
-				font.defaultWidth *= scale * 1000
-			}
-		}
+		// Keep widths in glyph space; text advancement applies FontMatrix once.
 		font.PositioningSupported = len(font.widths) > 0 || font.defaultWidthKnown
 	}
 	if b.wantPositions() {
@@ -203,10 +193,10 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 			if e != nil {
 				return -1, e
 			}
-			// Embedded bytes are retained only by the detailed API. Result
-			// uses dictionary metrics and never executes the font program.
-			if b.result == nil {
-				for _, name := range []Name{"FontFile", "FontFile2", "FontFile3"} {
+			// Full details retain embedded font references for inspection.
+			// Layout uses only metrics; no level executes the font program.
+			if b.keepDetails() {
+				for _, name := range []pdfmodel.Name{"FontFile", "FontFile2", "FontFile3"} {
 					if stream, exists, e := b.get(dd, name); e != nil {
 						return -1, e
 					} else if exists {
@@ -218,7 +208,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 			if width, exists, e := b.get(dd, "MissingWidth"); e != nil {
 				return -1, e
 			} else if exists && !font.composite {
-				font.defaultWidth, e = Number(width)
+				font.defaultWidth, e = pdfmodel.Number(width)
 				if e != nil {
 					return -1, e
 				}
@@ -229,7 +219,7 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 	if value, ok, e := b.get(dict, "ToUnicode"); e != nil {
 		return -1, e
 	} else if ok {
-		stream, ok := value.Value.(Stream)
+		stream, ok := value.Value.(pdfmodel.Stream)
 		if !ok {
 			return -1, fmt.Errorf("ToUnicode is not a stream at %+v", value.Span)
 		}
@@ -238,20 +228,20 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 		} else {
 			source, e := b.doc.DecodeStream(stream)
 			if e != nil {
-				if errors.Is(e, ErrLimit) {
+				if errors.Is(e, pdfmodel.ErrLimit) {
 					return -1, e
 				}
 				if err := b.diag("unsupported-tounicode", e.Error(), value.Span); err != nil {
 					return -1, err
 				}
 			} else {
-				data, e := b.doc.Bytes(Span{Source: source.ID, Start: 0, End: source.Size})
+				data, e := b.doc.Bytes(pdfmodel.Span{Source: source.ID, Start: 0, End: source.Size})
 				if e != nil {
 					return -1, e
 				}
 				font.ToUnicode, e = parseToUnicodeBounded(data, b.maxObjects-b.cmapEntries, b.maxUnicodeBytes-b.unicodeBytes)
 				if e != nil {
-					if errors.Is(e, ErrLimit) {
+					if errors.Is(e, pdfmodel.ErrLimit) {
 						return -1, fmt.Errorf("ToUnicode at %+v: %w", value.Span, e)
 					}
 					if err := b.diag("unsupported-tounicode", e.Error(), value.Span); err != nil {
@@ -280,15 +270,14 @@ func (b *semanticBuilder) font(resource Object) (int, error) {
 	return index, nil
 }
 
-// type3WidthScale returns the FontMatrix x-scale used to normalize Type3
-// glyph-space widths to the 1000-unit convention. A missing or zero-scale
-// matrix falls back to 0.001.
-func (b *semanticBuilder) type3WidthScale(dict Dictionary) (float64, error) {
+// type3WidthScale returns the horizontal component of FontMatrix for Type3
+// glyph-space widths. A missing matrix retains the existing 0.001 fallback.
+func (b *semanticBuilder) type3WidthScale(dict pdfmodel.Dictionary) (float64, error) {
 	value, ok, err := b.get(dict, "FontMatrix")
 	if err != nil || !ok {
 		return 0.001, err
 	}
-	array, isArray := value.Value.(Array)
+	array, isArray := value.Value.(pdfmodel.Array)
 	if !isArray || len(array.Items) != 6 {
 		return 0, fmt.Errorf("invalid Type3 FontMatrix at %+v", value.Span)
 	}
@@ -296,12 +285,9 @@ func (b *semanticBuilder) type3WidthScale(dict Dictionary) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	scale, err := Number(first)
+	scale, err := pdfmodel.Number(first)
 	if err != nil {
 		return 0, fmt.Errorf("invalid Type3 FontMatrix at %+v: %w", value.Span, err)
-	}
-	if scale == 0 {
-		return 0.001, nil
 	}
 	return scale, nil
 }
@@ -314,7 +300,7 @@ func (b *semanticBuilder) type3CharProcWidths(font *Font) error {
 	if err != nil {
 		return err
 	}
-	encDict, ok := font.Encoding.Value.(Dictionary)
+	encDict, ok := font.Encoding.Value.(pdfmodel.Dictionary)
 	if !ok {
 		return nil
 	}
@@ -322,7 +308,7 @@ func (b *semanticBuilder) type3CharProcWidths(font *Font) error {
 	if err != nil || !exists {
 		return err
 	}
-	array, isArray := diff.Value.(Array)
+	array, isArray := diff.Value.(pdfmodel.Array)
 	if !isArray {
 		return fmt.Errorf("invalid Encoding Differences")
 	}
@@ -332,15 +318,15 @@ func (b *semanticBuilder) type3CharProcWidths(font *Font) error {
 		if err != nil {
 			return err
 		}
-		if _, ok := resolved.Value.(Integer); ok {
-			n, err := Int(resolved)
+		if _, ok := resolved.Value.(pdfmodel.Integer); ok {
+			n, err := pdfmodel.Int(resolved)
 			if err != nil || n < 0 || n > 255 {
 				return fmt.Errorf("invalid encoding difference code")
 			}
 			code = int(n)
 			continue
 		}
-		glyph, ok := resolved.Value.(Name)
+		glyph, ok := resolved.Value.(pdfmodel.Name)
 		if !ok || code < 0 || code > 255 {
 			return fmt.Errorf("invalid Encoding Differences sequence")
 		}
@@ -358,7 +344,7 @@ func (b *semanticBuilder) type3CharProcWidths(font *Font) error {
 
 // charProcWidth decodes one Type3 charproc and returns the wx operand of its
 // leading d0/d1 operator, in glyph space units.
-func (b *semanticBuilder) charProcWidth(fontDict Dictionary, glyph string) (float64, bool, error) {
+func (b *semanticBuilder) charProcWidth(fontDict pdfmodel.Dictionary, glyph string) (float64, bool, error) {
 	procsRef, ok, err := b.get(fontDict, "CharProcs")
 	if err != nil || !ok {
 		return 0, false, err
@@ -371,7 +357,7 @@ func (b *semanticBuilder) charProcWidth(fontDict Dictionary, glyph string) (floa
 	if err != nil {
 		return 0, false, err
 	}
-	procRef, ok, err := b.get(procs, Name(glyph))
+	procRef, ok, err := b.get(procs, pdfmodel.Name(glyph))
 	if err != nil || !ok {
 		return 0, false, err
 	}
@@ -379,13 +365,13 @@ func (b *semanticBuilder) charProcWidth(fontDict Dictionary, glyph string) (floa
 	if err != nil {
 		return 0, false, err
 	}
-	stream, ok := proc.Value.(Stream)
+	stream, ok := proc.Value.(pdfmodel.Stream)
 	if !ok {
 		return 0, false, fmt.Errorf("Type3 charproc %s is not a stream", glyph)
 	}
 	source, err := b.doc.DecodeStream(stream)
 	if err != nil {
-		if errors.Is(err, ErrLimit) {
+		if errors.Is(err, pdfmodel.ErrLimit) {
 			return 0, false, err
 		}
 		// An unreadable glyph body keeps the dictionary width.
@@ -412,16 +398,16 @@ func (b *semanticBuilder) charProcWidth(fontDict Dictionary, glyph string) (floa
 		if !operator {
 			operands = append(operands, object)
 			if len(operands) > 256 {
-				return 0, false, fmt.Errorf("%w: Type3 charproc operand limit", ErrLimit)
+				return 0, false, fmt.Errorf("%w: Type3 charproc operand limit", pdfmodel.ErrLimit)
 			}
 			continue
 		}
-		name := string(object.Value.(Name))
+		name := string(object.Value.(pdfmodel.Name))
 		if name == "d0" || name == "d1" {
 			if len(operands) == 0 {
 				return 0, false, fmt.Errorf("Type3 charproc %s: %s without width", glyph, name)
 			}
-			width, err := Number(operands[0])
+			width, err := pdfmodel.Number(operands[0])
 			if err != nil {
 				return 0, false, err
 			}
@@ -431,8 +417,8 @@ func (b *semanticBuilder) charProcWidth(fontDict Dictionary, glyph string) (floa
 	}
 }
 
-func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
-	array, ok := object.Value.(Array)
+func (b *semanticBuilder) cidWidths(font *Font, object pdfmodel.Object) error {
+	array, ok := object.Value.(pdfmodel.Array)
 	if !ok {
 		return fmt.Errorf("invalid CID Widths at %+v", object.Span)
 	}
@@ -441,7 +427,7 @@ func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
 		if e != nil {
 			return e
 		}
-		start, e := Int(first)
+		start, e := pdfmodel.Int(first)
 		if e != nil || start < 0 || start > 65535 {
 			return fmt.Errorf("invalid CID width range")
 		}
@@ -453,7 +439,7 @@ func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
 		if e != nil {
 			return e
 		}
-		if widths, ok := next.Value.(Array); ok {
+		if widths, ok := next.Value.(pdfmodel.Array); ok {
 			if start+int64(len(widths.Items)) > 65536 {
 				return fmt.Errorf("invalid CID width range")
 			}
@@ -465,7 +451,7 @@ func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
 				if e != nil {
 					return e
 				}
-				width, e := Number(value)
+				width, e := pdfmodel.Number(value)
 				if e != nil {
 					return e
 				}
@@ -473,7 +459,7 @@ func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
 			}
 			i++
 		} else {
-			end, e := Int(next)
+			end, e := pdfmodel.Int(next)
 			if e != nil || end < start || end > 65535 {
 				return fmt.Errorf("invalid CID width range")
 			}
@@ -485,7 +471,7 @@ func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
 			if e != nil {
 				return e
 			}
-			width, e := Number(value)
+			width, e := pdfmodel.Number(value)
 			if e != nil {
 				return e
 			}
@@ -503,7 +489,7 @@ func (b *semanticBuilder) cidWidths(font *Font, object Object) error {
 
 func (b *semanticBuilder) reserveWidths(count int) error {
 	if count > b.maxObjects-b.widthEntries {
-		return fmt.Errorf("%w: font width expansion limit exceeded", ErrLimit)
+		return fmt.Errorf("%w: font width expansion limit exceeded", pdfmodel.ErrLimit)
 	}
 	b.widthEntries += count
 	return nil
@@ -511,8 +497,8 @@ func (b *semanticBuilder) reserveWidths(count int) error {
 
 func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 	encoding := font.Encoding
-	var differences Array
-	if dict, ok := encoding.Value.(Dictionary); ok {
+	var differences pdfmodel.Array
+	if dict, ok := encoding.Value.(pdfmodel.Dictionary); ok {
 		var e error
 		encoding, _, e = b.get(dict, "BaseEncoding")
 		if e != nil {
@@ -522,13 +508,13 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 			return e
 		} else if exists {
 			var ok bool
-			differences, ok = diff.Value.(Array)
+			differences, ok = diff.Value.(pdfmodel.Array)
 			if !ok {
 				return fmt.Errorf("invalid Encoding Differences")
 			}
 		}
 	}
-	name, _ := encoding.Value.(Name)
+	name, _ := encoding.Value.(pdfmodel.Name)
 	if name == "WinAnsiEncoding" || name == "StandardEncoding" {
 		font.simpleEncoding = asciiEncoding()
 	}
@@ -565,15 +551,15 @@ func (b *semanticBuilder) simpleFontEncoding(font *Font) error {
 		if err != nil {
 			return err
 		}
-		if _, ok := item.Value.(Integer); ok {
-			n, e := Int(item)
+		if _, ok := item.Value.(pdfmodel.Integer); ok {
+			n, e := pdfmodel.Int(item)
 			if e != nil || n < 0 || n > 255 {
 				return fmt.Errorf("invalid encoding difference code")
 			}
 			code = int(n)
 			continue
 		}
-		glyph, ok := item.Value.(Name)
+		glyph, ok := item.Value.(pdfmodel.Name)
 		if !ok || code < 0 || code > 255 {
 			return fmt.Errorf("invalid Encoding Differences sequence")
 		}
@@ -647,7 +633,7 @@ func (f *Font) decodeSelected(raw []byte, limit int64, collectCodes bool) (strin
 			complete = false
 		}
 		if int64(len(value)) > limit-int64(result.Len()) {
-			return "", nil, false, fmt.Errorf("%w: expanded Unicode text byte limit exceeded", ErrLimit)
+			return "", nil, false, fmt.Errorf("%w: expanded Unicode text byte limit exceeded", pdfmodel.ErrLimit)
 		}
 		result.WriteString(value)
 		if collectCodes {

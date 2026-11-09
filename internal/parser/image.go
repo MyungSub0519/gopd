@@ -3,7 +3,8 @@ package parser
 import (
 	"fmt"
 
-	"github.com/MyungSub0519/gopd/internal/common/syntax"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
 // DetailedImage is one placement of an image XObject or inline image; bytes
@@ -11,7 +12,7 @@ import (
 type DetailedImage struct {
 	Source   ElementSource
 	Resource int
-	Matrix   Matrix
+	Matrix   pdfmodel.Matrix
 	State    GraphicsState
 }
 
@@ -19,33 +20,33 @@ type DetailedImage struct {
 // An inline image has a zero ID; its Object spans the BI dictionary and holds
 // the Stream, whose StartKeyword is ID and EndKeyword is EI.
 type ImageResource struct {
-	Object           Object
-	ID               ObjectID
-	Stream           Stream
+	Object           pdfmodel.Object
+	ID               pdfmodel.ObjectID
+	Stream           pdfmodel.Stream
 	Width, Height    int
 	BitsPerComponent int
-	ColorSpace       Object
+	ColorSpace       pdfmodel.Object
 	ImageMask        bool
 }
 
 // ExtractedImage is one placement of a shared image resource.
 type ExtractedImage struct {
 	Resource int
-	Matrix   *Matrix        `json:",omitempty"`
-	Style    *PaintStyle    `json:",omitempty"`
-	Source   *ElementSource `json:",omitempty"`
+	Matrix   *pdfmodel.Matrix `json:",omitempty"`
+	Style    *PaintStyle      `json:",omitempty"`
+	Source   *ElementSource   `json:",omitempty"`
 }
 
 // ExtractedImageResource retains image metadata, not decoded pixels. ColorSpace
 // preserves the PDF value (including complex color-space parameters). Object is
-// present only with Provenance; its Stream can be used with Result.Document.
+// present only at DetailFull; its Stream can be used with Result.Document.
 type ExtractedImageResource struct {
-	ID               ObjectID
+	ID               pdfmodel.ObjectID
 	Width, Height    int
 	BitsPerComponent int
-	ColorSpace       Object
+	ColorSpace       pdfmodel.Object
 	ImageMask        bool
-	Object           *Object `json:",omitempty"`
+	Object           *pdfmodel.Object `json:",omitempty"`
 }
 
 func (c *contentInterpreter) image(image ImageResource, op Operation, index int, optional bool) error {
@@ -56,7 +57,7 @@ func (c *contentInterpreter) image(image ImageResource, op Operation, index int,
 	resource, exists := c.b.images[object.Span]
 	if !exists {
 		for _, entry := range []struct {
-			name   Name
+			name   pdfmodel.Name
 			target *int
 		}{{"Width", &image.Width}, {"Height", &image.Height}, {"BitsPerComponent", &image.BitsPerComponent}} {
 			value, ok, e := c.b.get(stream.Dictionary, entry.name)
@@ -67,7 +68,7 @@ func (c *contentInterpreter) image(image ImageResource, op Operation, index int,
 				return fmt.Errorf("image missing /%s", entry.name)
 			}
 			if ok {
-				n, e := Int(value)
+				n, e := pdfmodel.Int(value)
 				if e != nil || n < 0 || n > 1<<30 {
 					return fmt.Errorf("invalid image /%s", entry.name)
 				}
@@ -81,7 +82,7 @@ func (c *contentInterpreter) image(image ImageResource, op Operation, index int,
 		if mask, ok, e := c.b.get(stream.Dictionary, "ImageMask"); e != nil {
 			return e
 		} else if ok {
-			v, ok := mask.Value.(Boolean)
+			v, ok := mask.Value.(pdfmodel.Boolean)
 			if !ok {
 				return fmt.Errorf("invalid ImageMask")
 			}
@@ -105,7 +106,7 @@ func (c *contentInterpreter) inlineImage(scanner *syntax.ContentScanner, op *Ope
 	if err != nil {
 		return err
 	}
-	op.Operands = []Object{{Span: stream.DictionarySpan, Value: stream}}
+	op.Operands = []pdfmodel.Object{{Span: stream.DictionarySpan, Value: stream}}
 	return nil
 }
 
@@ -118,17 +119,17 @@ func (c *contentInterpreter) placeInlineImage(op Operation, index int) error {
 	object := op.Operands[0]
 	resource, exists := c.b.images[object.Span]
 	if !exists {
-		stream := object.Value.(Stream)
+		stream := object.Value.(pdfmodel.Stream)
 		image := ImageResource{Object: object, Stream: stream}
 		for _, entry := range []struct {
-			short, full Name
+			short, full pdfmodel.Name
 			target      *int
 		}{{"W", "Width", &image.Width}, {"H", "Height", &image.Height}, {"BPC", "BitsPerComponent", &image.BitsPerComponent}} {
 			value, ok := syntax.InlineImageEntry(stream.Dictionary, entry.short, entry.full)
 			if !ok {
 				continue
 			}
-			n, err := Int(value)
+			n, err := pdfmodel.Int(value)
 			if err != nil || n < 0 || n > 1<<30 {
 				return fmt.Errorf("invalid inline image /%s", entry.short)
 			}
@@ -136,7 +137,7 @@ func (c *contentInterpreter) placeInlineImage(op Operation, index int) error {
 		}
 		image.ColorSpace, _ = syntax.InlineImageEntry(stream.Dictionary, "CS", "ColorSpace")
 		if mask, ok := syntax.InlineImageEntry(stream.Dictionary, "IM", "ImageMask"); ok {
-			v, ok := mask.Value.(Boolean)
+			v, ok := mask.Value.(pdfmodel.Boolean)
 			if !ok {
 				return fmt.Errorf("invalid inline image /IM")
 			}
@@ -166,10 +167,11 @@ func (c *contentInterpreter) placeImage(resource int, op Operation, index int, o
 }
 
 func (b *semanticBuilder) emitImageResource(resource ImageResource) int {
-	if b.result == nil {
-		index := len(b.pdf.ImageResources)
+	if b.keepDetails() {
 		b.pdf.ImageResources = append(b.pdf.ImageResources, resource)
-		return index
+	}
+	if b.result == nil {
+		return len(b.pdf.ImageResources) - 1
 	}
 	output := ExtractedImageResource{
 		ID: resource.ID, Width: resource.Width, Height: resource.Height,
@@ -186,9 +188,11 @@ func (b *semanticBuilder) emitImageResource(resource ImageResource) int {
 }
 
 func (c *contentInterpreter) emitImage(image DetailedImage) {
-	if c.b.result == nil {
+	if c.b.keepDetails() {
 		c.item(ElementImage, len(c.b.pdf.Images))
 		c.b.pdf.Images = append(c.b.pdf.Images, image)
+	}
+	if c.b.result == nil {
 		return
 	}
 	output := ExtractedImage{Resource: image.Resource, Style: c.b.extractStyle(image.State)}

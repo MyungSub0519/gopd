@@ -1,30 +1,48 @@
+// Package gopd parses PDF content and provides access to its underlying structure.
+//
+// Start with ParseFile or ParseReader. ParseOptions.Content selects text,
+// graphics, images and annotations; Detail selects Basic, Layout or Full output.
+// Both entry points return Result, with Result.Details available at DetailFull.
+// Full describes retained information, not complete rendering or PDF conformance.
+// Always check errors and diagnostics, including when a partial result is returned.
+// Close Full results and legacy results when finished. Reader inputs must remain
+// open and unchanged until their retained Document is closed.
+// Low-level Document and syntax helpers remain available for object/byte access.
 package gopd
 
 import (
 	"io"
 
-	"github.com/MyungSub0519/gopd/internal/common/document"
-	"github.com/MyungSub0519/gopd/internal/common/pdfmodel"
-	"github.com/MyungSub0519/gopd/internal/common/syntax"
+	"github.com/MyungSub0519/gopd/internal/document"
 	"github.com/MyungSub0519/gopd/internal/parser"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
-// ParsePDF snapshots a file and returns basic text and graphics grouped by page.
+// ParsePDF reads a file and returns basic text and graphics grouped by page.
 // It retains eager detailed analysis for Details; it is not selective parsing.
 // A semantic failure can return both a partial PDF and an error. Callers must
-// check err before treating the result as successful. No Close call is required.
+// check err and close any non-nil result, including partial results.
+//
+// Deprecated: Use ParseFile with Content and Detail. The Result layout differs
+// from PDF; DetailFull retains the detailed view through Result.Details().
 func ParsePDF(path string) (*PDF, error) {
 	return parser.ParsePDF(path)
 }
 
 // Open returns detailed contents, resources, operations, and byte provenance.
-// Use ParsePDF for a basic result. Both functions close the input file.
+// Close any non-nil result to release its input file, including partial results.
+//
+// Deprecated: Use ParseFile with ContentAll and DetailFull, then Result.Details().
 func Open(path string) (*DetailedPDF, error) {
 	return parser.Open(path)
 }
 
-// Read parses a bounded snapshot of r and returns detailed page contents.
-// The caller retains ownership of r; no Close call is required on the result.
+// Read parses r through a bounded buffer and returns detailed page contents.
+// Keep r open and unchanged until closing the result. Close any non-nil result,
+// including partial results. Read never closes the caller-owned reader.
+//
+// Deprecated: Use ParseReader with ContentAll and DetailFull, then Result.Details().
 func Read(r io.ReaderAt, size int64) (*DetailedPDF, error) {
 	return parser.Read(r, size)
 }
@@ -32,18 +50,22 @@ func Read(r io.ReaderAt, size int64) (*DetailedPDF, error) {
 // BuildPDF interprets page contents. Invalid syntax and traversal limits return
 // an error and any partial result. Unsupported effects are retained as operations
 // and diagnostics. No pixel rendering, OCR, or reading-order reconstruction occurs.
+// The result shares d; closing either closes their shared source access.
 func BuildPDF(d *Document) (*DetailedPDF, error) {
 	return parser.BuildPDF(d)
 }
 
-// LoadDocument snapshots a file and prepares low-level object access. It closes
-// the file before returning. At most one ReadOptions value may be supplied;
-// a structural error can return a partial Document together with the error.
+// LoadDocument opens a file and prepares buffered low-level object access.
+// Close the returned Document when finished. Keep the file unchanged until then.
+// At most one ReadOptions value may be supplied. A structural error may return
+// a partial Document; close every non-nil Document, including on error.
 func LoadDocument(path string, options ...ReadOptions) (*Document, error) {
 	return document.Load(path, options...)
 }
 
-// ReadDocument snapshots r; it never closes a caller-owned ReaderAt.
+// ReadDocument borrows r through a bounded buffer and never closes it. Keep r
+// open and unchanged until Document.Close, including for partial Documents
+// returned with errors. At most one ReadOptions value may be supplied.
 func ReadDocument(r io.ReaderAt, size int64, options ...ReadOptions) (*Document, error) {
 	return document.Read(r, size, options...)
 }
@@ -89,16 +111,20 @@ func IdentityMatrix() Matrix {
 	return pdfmodel.IdentityMatrix()
 }
 
-// ParseFile snapshots a file and directly emits selected content. The file is
-// closed before return. A semantic error can accompany a partial Result;
-// callers must check err even when the result is non-nil.
+// ParseFile reads a file through a bounded buffer and emits the requested content.
+// Zero options return text at DetailBasic. Basic and Layout close the file before
+// return; Full retains it until Result.Close. Keep the file unchanged until then.
+// A semantic error can accompany a partial Result; check err and close any non-nil
+// Full result, including when an error is returned.
 func ParseFile(path string, options ParseOptions) (*Result, error) {
 	return parser.ParseFile(path, options)
 }
 
-// ParseReader takes one bounded input snapshot and never closes r. Content
-// kinds share one interpreter; reused Forms still execute under each caller's
-// state. This API does not promise bounded total process memory or streaming I/O.
+// ParseReader reads through a bounded buffer and never closes r. Keep r open
+// and unchanged during the call and, at Full, until Result.Close. Close any
+// non-nil Full result, including partial results. Content and Detail have the
+// same meaning as in ParseFile. Decoded streams and results retain their existing
+// memory budgets; this API does not promise bounded total process memory.
 func ParseReader(r io.ReaderAt, size int64, options ParseOptions) (*Result, error) {
 	return parser.ParseReader(r, size, options)
 }

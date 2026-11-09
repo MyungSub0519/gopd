@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
 // Graphic is one path painting operation; it is not a whole chart or figure.
@@ -18,13 +20,13 @@ type Graphic struct {
 // PathSegment points are already transformed into unrotated page user space.
 type PathSegment struct {
 	Operator string
-	Points   []Point
+	Points   []pdfmodel.Point
 }
 
 type DetailedPathSegment struct {
 	Operator string
-	Points   []Point // transformed to page user space when the segment is constructed
-	Span     Span
+	Points   []pdfmodel.Point // transformed to page user space when the segment is constructed
+	Span     pdfmodel.Span
 }
 
 type DetailedGraphic struct {
@@ -36,7 +38,7 @@ type DetailedGraphic struct {
 }
 
 // ExtractedGraphic is a painted path, not a complete chart or figure. Geometry
-// is always in unrotated page user space, independent of Positions.
+// is always in unrotated page user space, at every detail level.
 type ExtractedGraphic struct {
 	Segments              []PathSegment
 	Paint                 string
@@ -62,7 +64,7 @@ func (c *contentInterpreter) executeGraphic(op Operation, index int) error {
 		if e != nil {
 			return e
 		}
-		phase, e := Number(op.Operands[1])
+		phase, e := pdfmodel.Number(op.Operands[1])
 		if e != nil {
 			return e
 		}
@@ -75,7 +77,7 @@ func (c *contentInterpreter) executeGraphic(op Operation, index int) error {
 		g.RenderingIntent = name
 	case "G", "g", "RG", "rg", "K", "k":
 		count := 1
-		space := Name("DeviceGray")
+		space := pdfmodel.Name("DeviceGray")
 		if op.Operator == "RG" || op.Operator == "rg" {
 			count = 3
 			space = "DeviceRGB"
@@ -124,13 +126,13 @@ func (c *contentInterpreter) executeGraphic(op Operation, index int) error {
 		}
 		color.Components = nil
 		for i, operand := range op.Operands {
-			if name, ok := operand.Value.(Name); ok && i == len(op.Operands)-1 {
+			if name, ok := operand.Value.(pdfmodel.Name); ok && i == len(op.Operands)-1 {
 				color.Pattern = name
 				if err := c.unsupported(op, "Pattern colors are retained without pattern execution"); err != nil {
 					return err
 				}
 			} else {
-				n, e := Number(operand)
+				n, e := pdfmodel.Number(operand)
 				if e != nil {
 					return e
 				}
@@ -185,21 +187,21 @@ func (c *contentInterpreter) pathOperation(op Operation, index int) error {
 	if op.Operator != "m" && op.Operator != "re" && len(c.path) == 0 {
 		return fmt.Errorf("path operator without current point")
 	}
-	var points []Point
+	var points []pdfmodel.Point
 	for i := 0; i < len(n); i += 2 {
-		points = append(points, c.state.graphics.CTM.Transform(Point{X: n[i], Y: n[i+1]}))
+		points = append(points, c.state.graphics.CTM.Transform(pdfmodel.Point{X: n[i], Y: n[i+1]}))
 	}
 	if op.Operator == "re" {
-		points = c.rectanglePoints(Rect{Min: Point{X: n[0], Y: n[1]}, Max: Point{X: n[0] + n[2], Y: n[1] + n[3]}})
+		points = c.rectanglePoints(pdfmodel.Rect{Min: pdfmodel.Point{X: n[0], Y: n[1]}, Max: pdfmodel.Point{X: n[0] + n[2], Y: n[1] + n[3]}})
 	}
 	if op.Operator == "v" {
-		points = append([]Point{c.currentPoint()}, points...)
+		points = append([]pdfmodel.Point{c.currentPoint()}, points...)
 	}
 	if op.Operator == "y" {
 		points = append(points, points[len(points)-1])
 	}
 	if op.Operator == "h" {
-		points = []Point{c.subpathStart()}
+		points = []pdfmodel.Point{c.subpathStart()}
 	}
 	for _, point := range points {
 		if !finitePoint(point) {
@@ -213,7 +215,7 @@ func (c *contentInterpreter) pathOperation(op Operation, index int) error {
 	return nil
 }
 
-func (c *contentInterpreter) currentPoint() Point {
+func (c *contentInterpreter) currentPoint() pdfmodel.Point {
 	segment := c.path[len(c.path)-1]
 	if segment.Operator == "re" {
 		return segment.Points[0]
@@ -221,21 +223,21 @@ func (c *contentInterpreter) currentPoint() Point {
 	return segment.Points[len(segment.Points)-1]
 }
 
-func (c *contentInterpreter) subpathStart() Point {
+func (c *contentInterpreter) subpathStart() pdfmodel.Point {
 	for i := len(c.path) - 1; i >= 0; i-- {
 		if c.path[i].Operator == "m" || c.path[i].Operator == "re" {
 			return c.path[i].Points[0]
 		}
 	}
-	return Point{}
+	return pdfmodel.Point{}
 }
 
-func (c *contentInterpreter) rectanglePoints(r Rect) []Point {
+func (c *contentInterpreter) rectanglePoints(r pdfmodel.Rect) []pdfmodel.Point {
 	m := c.state.graphics.CTM
-	return []Point{m.Transform(r.Min), m.Transform(Point{X: r.Max.X, Y: r.Min.Y}), m.Transform(r.Max), m.Transform(Point{X: r.Min.X, Y: r.Max.Y})}
+	return []pdfmodel.Point{m.Transform(r.Min), m.Transform(pdfmodel.Point{X: r.Max.X, Y: r.Min.Y}), m.Transform(r.Max), m.Transform(pdfmodel.Point{X: r.Min.X, Y: r.Max.Y})}
 }
 
-func (c *contentInterpreter) addRectClip(r Rect, span Span) error {
+func (c *contentInterpreter) addRectClip(r pdfmodel.Rect, span pdfmodel.Span) error {
 	points := c.rectanglePoints(r)
 	for _, point := range points {
 		if !finitePoint(point) {
@@ -248,7 +250,7 @@ func (c *contentInterpreter) addRectClip(r Rect, span Span) error {
 func (c *contentInterpreter) addClip(clip ClipPath) error {
 	count := len(c.state.graphics.Clip) + 1
 	if count > c.b.maxObjects-c.b.clipReferences {
-		return fmt.Errorf("%w: cumulative clipping snapshot limit exceeded", ErrLimit)
+		return fmt.Errorf("%w: cumulative clipping snapshot limit exceeded", pdfmodel.ErrLimit)
 	}
 	c.b.clipReferences += count
 	clips := append([]ClipPath(nil), c.state.graphics.Clip...)
@@ -258,7 +260,7 @@ func (c *contentInterpreter) addClip(clip ClipPath) error {
 
 func (c *contentInterpreter) paint(op Operation, index int) error {
 	if (op.Operator == "s" || op.Operator == "b" || op.Operator == "b*") && len(c.path) > 0 {
-		c.path = append(c.path, DetailedPathSegment{Operator: "h", Points: []Point{c.subpathStart()}, Span: op.Span})
+		c.path = append(c.path, DetailedPathSegment{Operator: "h", Points: []pdfmodel.Point{c.subpathStart()}, Span: op.Span})
 	}
 	if c.b.wants(ContentGraphics) && op.Operator != "n" && len(c.path) > 0 {
 		if err := c.b.chargeStyle(c.state.graphics, op.Span); err != nil {
@@ -332,9 +334,11 @@ func (c *contentInterpreter) setDash(dash []float64, phase float64) error {
 }
 
 func (c *contentInterpreter) emitGraphic(graphic DetailedGraphic) {
-	if c.b.result == nil {
+	if c.b.keepDetails() {
 		c.item(ElementGraphic, len(c.b.pdf.Graphics))
 		c.b.pdf.Graphics = append(c.b.pdf.Graphics, graphic)
+	}
+	if c.b.result == nil {
 		return
 	}
 	segments := make([]PathSegment, len(graphic.Segments))

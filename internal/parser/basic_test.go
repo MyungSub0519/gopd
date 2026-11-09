@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
 func parseBasicFixture(t *testing.T, objects ...string) *PDF {
@@ -17,6 +19,11 @@ func parseBasicFixture(t *testing.T, objects ...string) *PDF {
 		t.Fatal(err)
 	}
 	p, err := ParsePDF(path)
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,17 +113,17 @@ func TestBasicContentOrderAndSharedResources(t *testing.T) {
 	if first.Page != 0 || first.Unicode != "A" || first.Font == nil || first.Font.BaseFont != "SameName" || first.FontSize != 12 || !first.DecodeComplete || !first.PositionComplete {
 		t.Fatalf("basic text = %+v", first)
 	}
-	if first.Matrix != (Matrix{2, 0, 0, 3, 50, 110}) {
+	if first.Matrix != (pdfmodel.Matrix{2, 0, 0, 3, 50, 110}) {
 		t.Fatalf("text placement = %v", first.Matrix)
 	}
 	if first.Font != p.Texts[0][1].Font || first.Font == p.Texts[0][2].Font {
 		t.Fatal("fonts must share by resource identity, not by name")
 	}
 	graphic := p.Graphics[0][0]
-	if graphic.Page != 0 || !graphic.Stroke || graphic.Fill || graphic.Style.LineWidth != 2 || graphic.Segments[1].Points[0] != (Point{X: 30, Y: 50}) {
+	if graphic.Page != 0 || !graphic.Stroke || graphic.Fill || graphic.Style.LineWidth != 2 || graphic.Segments[1].Points[0] != (pdfmodel.Point{X: 30, Y: 50}) {
 		t.Fatalf("graphic placement or style changed: %+v", graphic)
 	}
-	if detail.Images[0].Resource != detail.Images[1].Resource || detail.Images[0].Matrix != (Matrix{2, 0, 0, 3, 10, 20}) {
+	if detail.Images[0].Resource != detail.Images[1].Resource || detail.Images[0].Matrix != (pdfmodel.Matrix{2, 0, 0, 3, 10, 20}) {
 		t.Fatal("image identity or placement changed")
 	}
 	if len(detail.Fonts) != 2 || len(detail.ImageResources) != 1 || len(detail.Pages[0].Operations) == 0 {
@@ -201,7 +208,7 @@ func TestBasicDiagnosticsKeepPageForRepeatedForms(t *testing.T) {
 		t.Fatalf("shared source diagnostic pages = %+v", detail.diagnosticPages)
 	}
 	for i, issue := range detail.Diagnostics {
-		if issue.Severity != SeverityWarning || issue.Code != "unsupported-content-effect" || detail.Pages[i].Complete || !p.Graphics[i][0].Style.Clipped || p.Graphics[i][0].Style.Complete {
+		if issue.Severity != pdfmodel.SeverityWarning || issue.Code != "unsupported-content-effect" || detail.Pages[i].Complete || !p.Graphics[i][0].Style.Clipped || p.Graphics[i][0].Style.Complete {
 			t.Fatalf("diagnostic or state was lost: %+v", issue)
 		}
 	}
@@ -247,6 +254,11 @@ func TestParsePDFErrorsAndPartialResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, err := ParsePDF(path)
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	if err == nil || !strings.Contains(err.Error(), "inline image") || p == nil || len(p.Graphics) != 1 || len(p.Graphics[0]) != 1 || p.Details() == nil {
 		t.Fatalf("semantic partial failure was hidden: result=%v error=%v", p, err)
 	}

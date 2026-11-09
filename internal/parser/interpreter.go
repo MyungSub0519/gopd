@@ -6,23 +6,24 @@ import (
 	"io"
 	"math"
 
-	"github.com/MyungSub0519/gopd/internal/common/syntax"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
 type contentInterpreter struct {
 	b                      *semanticBuilder
 	page                   int
-	resources              Dictionary
+	resources              pdfmodel.Dictionary
 	state                  contentState
 	stack                  []contentState
-	textMatrix, lineMatrix Matrix
+	textMatrix, lineMatrix pdfmodel.Matrix
 	inText                 bool
 	positionComplete       bool
 	path                   []DetailedPathSegment
 	pathOperations         []int
 	pendingClip            bool
 	clipEvenOdd            bool
-	operands               []Object
+	operands               []pdfmodel.Object
 	formPath               []FormCall
 	formDepth              int
 	pathStarted            bool
@@ -40,26 +41,26 @@ type contentState struct {
 }
 
 type FormCall struct {
-	ObjectID ObjectID
-	Span     Span
-	Call     Span
+	ObjectID pdfmodel.ObjectID
+	Span     pdfmodel.Span
+	Call     pdfmodel.Span
 }
 
 type ElementSource struct {
 	Page       int
-	Spans      []Span
+	Spans      []pdfmodel.Span
 	Operations []int // indexes into the page's flattened Operations slice
 	FormPath   []FormCall
 }
 
 type Operation struct {
 	Operator string
-	Operands []Object
-	Span     Span // operator token; operands retain their own source spans
+	Operands []pdfmodel.Object
+	Span     pdfmodel.Span // operator token; operands retain their own source spans
 	FormPath []FormCall
 }
 
-func (c *contentInterpreter) stream(stream Stream) error {
+func (c *contentInterpreter) stream(stream pdfmodel.Stream) error {
 	source, err := c.contentSource(stream)
 	if err != nil {
 		return err
@@ -67,16 +68,16 @@ func (c *contentInterpreter) stream(stream Stream) error {
 	return c.interpretSource(source)
 }
 
-func (c *contentInterpreter) contentSource(stream Stream) (Source, error) {
+func (c *contentInterpreter) contentSource(stream pdfmodel.Stream) (pdfmodel.Source, error) {
 	if err := c.b.chargeSemantic("content stream", stream.DictionarySpan); err != nil {
-		return Source{}, err
+		return pdfmodel.Source{}, err
 	}
 	source, err := c.b.doc.DecodeStream(stream)
 	if err != nil {
-		return Source{}, err
+		return pdfmodel.Source{}, err
 	}
 	if source.Size > c.b.maxContentBytes-c.b.contentBytes {
-		return Source{}, fmt.Errorf("%w: cumulative content byte limit exceeded at source %d", ErrLimit, source.ID)
+		return pdfmodel.Source{}, fmt.Errorf("%w: cumulative content byte limit exceeded at source %d", pdfmodel.ErrLimit, source.ID)
 	}
 	c.b.contentBytes += source.Size
 	return source, nil
@@ -85,8 +86,8 @@ func (c *contentInterpreter) contentSource(stream Stream) (Source, error) {
 // interpretSource scans one content stream operator by operator. Scanning is
 // incremental so that an inline image payload, which is not PDF syntax, can be
 // skipped once its BI dictionary says where it ends.
-func (c *contentInterpreter) interpretSource(source Source) error {
-	data, err := c.b.doc.Bytes(Span{Source: source.ID, Start: 0, End: source.Size})
+func (c *contentInterpreter) interpretSource(source pdfmodel.Source) error {
+	data, err := c.b.doc.Bytes(pdfmodel.Span{Source: source.ID, Start: 0, End: source.Size})
 	if err != nil {
 		return err
 	}
@@ -106,7 +107,7 @@ func (c *contentInterpreter) interpretSource(source Source) error {
 		if !operator {
 			c.operands = append(c.operands, object)
 			if len(c.operands) > 65536 {
-				return fmt.Errorf("%w: content operand limit at %+v", ErrLimit, object.Span)
+				return fmt.Errorf("%w: content operand limit at %+v", pdfmodel.ErrLimit, object.Span)
 			}
 			continue
 		}
@@ -115,9 +116,9 @@ func (c *contentInterpreter) interpretSource(source Source) error {
 		}
 		c.b.operations++
 		if c.b.operations > c.b.maxObjects {
-			return fmt.Errorf("%w: content operation limit at %+v", ErrLimit, object.Span)
+			return fmt.Errorf("%w: content operation limit at %+v", pdfmodel.ErrLimit, object.Span)
 		}
-		op := Operation{Operator: string(object.Value.(Name)), Operands: c.operands, Span: object.Span}
+		op := Operation{Operator: string(object.Value.(pdfmodel.Name)), Operands: c.operands, Span: object.Span}
 		c.operands = nil
 		if op.Operator == "BI" {
 			if err := c.inlineImage(scanner, &op); err != nil {
@@ -141,7 +142,7 @@ func (c *contentInterpreter) source(op Operation, index int) ElementSource {
 	if !c.b.wantProvenance() {
 		return ElementSource{Page: c.page}
 	}
-	spans := make([]Span, 0, len(op.Operands)+1)
+	spans := make([]pdfmodel.Span, 0, len(op.Operands)+1)
 	for _, operand := range op.Operands {
 		spans = append(spans, operand.Span)
 	}
@@ -162,7 +163,7 @@ func (c *contentInterpreter) unsupported(op Operation, message string) error {
 func initialContentState() contentState {
 	return contentState{
 		graphics: GraphicsState{
-			CTM: IdentityMatrix(), LineWidth: 1, MiterLimit: 10,
+			CTM: pdfmodel.IdentityMatrix(), LineWidth: 1, MiterLimit: 10,
 			Stroke:      Color{Space: "DeviceGray", Components: []float64{0}},
 			Fill:        Color{Space: "DeviceGray", Components: []float64{0}},
 			StrokeAlpha: 1, FillAlpha: 1, BlendMode: "Normal", Complete: true,
@@ -177,7 +178,7 @@ func operationNumbers(op Operation, n int) ([]float64, error) {
 	}
 	numbers := make([]float64, n)
 	for i, operand := range op.Operands {
-		value, err := Number(operand)
+		value, err := pdfmodel.Number(operand)
 		if err != nil {
 			return nil, err
 		}
@@ -186,11 +187,11 @@ func operationNumbers(op Operation, n int) ([]float64, error) {
 	return numbers, nil
 }
 
-func operationName(op Operation) (Name, error) {
+func operationName(op Operation) (pdfmodel.Name, error) {
 	if len(op.Operands) != 1 {
 		return "", fmt.Errorf("expected one name operand")
 	}
-	name, ok := op.Operands[0].Value.(Name)
+	name, ok := op.Operands[0].Value.(pdfmodel.Name)
 	if !ok {
 		return "", fmt.Errorf("expected name")
 	}
@@ -204,13 +205,13 @@ func noOperands(op Operation) error {
 	return nil
 }
 
-func translate(x, y float64) Matrix { return Matrix{1, 0, 0, 1, x, y} }
+func translate(x, y float64) pdfmodel.Matrix { return pdfmodel.Matrix{1, 0, 0, 1, x, y} }
 
-func finitePoint(p Point) bool {
+func finitePoint(p pdfmodel.Point) bool {
 	return !math.IsNaN(p.X) && !math.IsNaN(p.Y) && !math.IsInf(p.X, 0) && !math.IsInf(p.Y, 0)
 }
 
-func finiteMatrix(m Matrix) bool {
+func finiteMatrix(m pdfmodel.Matrix) bool {
 	for _, v := range m {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return false
@@ -234,7 +235,7 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 			return err
 		}
 		if len(c.stack) >= 256 || len(c.stack) >= c.b.maxDepth {
-			return fmt.Errorf("%w: graphics state depth limit", ErrLimit)
+			return fmt.Errorf("%w: graphics state depth limit", pdfmodel.ErrLimit)
 		}
 		c.stack = append(c.stack, c.state)
 	case "Q":
@@ -254,7 +255,7 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 		if e != nil {
 			return e
 		}
-		g.CTM = g.CTM.Mul(Matrix(n))
+		g.CTM = g.CTM.Mul(pdfmodel.Matrix(n))
 		for _, v := range g.CTM {
 			if math.IsInf(v, 0) || math.IsNaN(v) {
 				return fmt.Errorf("matrix overflow")

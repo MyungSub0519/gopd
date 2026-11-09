@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MyungSub0519/gopd/internal/common/pdftest"
+	"github.com/MyungSub0519/gopd/internal/document"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/pdftest"
 )
 
 // The PDF container is always valid so mutations exercise the content
@@ -37,7 +39,7 @@ func FuzzBuildPDF(f *testing.F) {
 			semanticStream(`/Subtype /Form /BBox [10 10 0 0] /Resources << /Font << /F 7 0 R >> >>`, `BT /F 10 Tf (A) Tj ET`),
 			`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 65 /Widths [600] >>`,
 			semanticStream(`/Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8`, "A"))
-		d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{
+		d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{
 			MaxDepth: 12, MaxObjects: 128, MaxValues: 2048, MaxSemanticObjects: 256,
 			MaxContentBytes: 32 << 10, MaxDecodedBytes: 32 << 10, MaxTokenBytes: 4096,
 		}})
@@ -99,7 +101,7 @@ func TestContentCompoundOperandAcrossStreams(t *testing.T) {
 		t.Fatalf("split operand bytes = %q, err=%v", raw, err)
 	}
 	source := p.Document.Sources[operand.Span.Source]
-	if source.Origin == nil || len(source.Origin.Inputs) != 2 || source.Origin.Input != (Span{}) {
+	if source.Origin == nil || len(source.Origin.Inputs) != 2 || source.Origin.Input != (pdfmodel.Span{}) {
 		t.Fatalf("joined source provenance = %+v", source.Origin)
 	}
 	var reconstructed []byte
@@ -113,7 +115,7 @@ func TestContentCompoundOperandAcrossStreams(t *testing.T) {
 			t.Fatal("joined inputs must identify original decoded streams")
 		}
 	}
-	joined, err := p.Document.Bytes(Span{Source: source.ID, End: source.Size})
+	joined, err := p.Document.Bytes(pdfmodel.Span{Source: source.ID, End: source.Size})
 	if err != nil || !bytes.Equal(joined, reconstructed) {
 		t.Fatalf("joined bytes differ from exact input concatenation: %v", err)
 	}
@@ -138,7 +140,7 @@ func TestContentCumulativeByteBudget(t *testing.T) {
 				`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 				`<< /Type /Page /Parent 2 0 R /Contents [`+strings.Repeat("4 0 R ", repeats)+`] >>`,
 				semanticStream("", strings.Repeat(" ", 64)))
-			d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 64, MaxContentBytes: 128}})
+			d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 64, MaxContentBytes: 128}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,7 +148,7 @@ func TestContentCumulativeByteBudget(t *testing.T) {
 			if repeats == 2 && err != nil {
 				t.Fatalf("exact byte budget must pass: %v", err)
 			}
-			if repeats == 3 && (!errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "cumulative content byte limit")) {
+			if repeats == 3 && (!errors.Is(err, pdfmodel.ErrLimit) || !strings.Contains(err.Error(), "cumulative content byte limit")) {
 				t.Fatalf("reused decoded source must count on each visit: %v", err)
 			}
 		})
@@ -161,11 +163,11 @@ func TestContentByteBudgetIncludesForms(t *testing.T) {
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Fm 5 0 R >> >> >>`,
 		semanticStream("", content),
 		semanticStream(`/Subtype /Form /BBox [0 0 1 1]`, strings.Repeat(" ", 64)))
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxContentBytes: int64(len(content) + 64)}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxContentBytes: int64(len(content) + 64)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildPDF(d); !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "cumulative content byte limit") {
+	if _, err := BuildPDF(d); !errors.Is(err, pdfmodel.ErrLimit) || !strings.Contains(err.Error(), "cumulative content byte limit") {
 		t.Fatalf("Form bytes must be charged for every invocation: %v", err)
 	}
 }
@@ -178,7 +180,7 @@ func TestContentValueBudgetIncludesRepeatedOperands(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
 		semanticStream("", strings.Repeat("[1 2] 0 d ", 17)))
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: 64}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxValues: 64}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,11 +196,11 @@ func TestContentBoundsRepeatedWhitespaceStreams(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents [`+strings.Repeat("4 0 R ", 200)+`] >>`,
 		semanticStream("", strings.Repeat(" ", 65536)))
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildPDF(d); !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "semantic object limit") {
+	if _, err := BuildPDF(d); !errors.Is(err, pdfmodel.ErrLimit) || !strings.Contains(err.Error(), "semantic object limit") {
 		t.Fatalf("repeated stream visit limit = %v", err)
 	}
 }
@@ -209,12 +211,12 @@ func TestContentBoundsAnnotationOccurrences(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Annots [`+strings.Repeat("4 0 R ", 200)+`] >>`,
 		`<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] >>`)
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	p, err := BuildPDF(d)
-	if !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "semantic object limit") || len(p.Annotations) > 20 {
+	if !errors.Is(err, pdfmodel.ErrLimit) || !strings.Contains(err.Error(), "semantic object limit") || len(p.Annotations) > 20 {
 		t.Fatalf("annotation limit: annotations=%d err=%v", len(p.Annotations), err)
 	}
 }
@@ -230,12 +232,12 @@ func TestContentSemanticBudgetIsCumulativeAcrossPages(t *testing.T) {
 		`[6 0 R 6 0 R]`,
 		`<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] >>`)
 	for _, budget := range []int{6, 7} {
-		d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20, MaxSemanticObjects: budget}})
+		d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 20, MaxSemanticObjects: budget}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		p, err := BuildPDF(d)
-		if budget == 6 && (!errors.Is(err, ErrLimit) || len(p.Annotations) != 3) {
+		if budget == 6 && (!errors.Is(err, pdfmodel.ErrLimit) || len(p.Annotations) != 3) {
 			t.Fatalf("excess annotation: count=%d, err=%v", len(p.Annotations), err)
 		}
 		if budget == 7 && (err != nil || len(p.Annotations) != 4) {
@@ -268,7 +270,7 @@ func TestContentNormalizesRectangleCorners(t *testing.T) {
 				`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox `+rectangle+` >>`,
 				`<< /Type /Page /Parent 2 0 R /CropBox `+rectangle+` /Annots [4 0 R] >>`,
 				`<< /Type /Annot /Subtype /Text /Rect `+rectangle+` >>`)
-			want := Rect{Max: Point{X: 100, Y: 100}}
+			want := pdfmodel.Rect{Max: pdfmodel.Point{X: 100, Y: 100}}
 			if p.Pages[0].MediaBox != want || p.Pages[0].CropBox != want || p.Annotations[0].Rect != want {
 				t.Fatalf("rectangles not normalized: %+v, %+v", p.Pages[0], p.Annotations[0])
 			}
@@ -323,12 +325,12 @@ func TestExtGStateRepeatedEntriesConsumeSemanticBudget(t *testing.T) {
 	}
 	state.WriteString(" >>")
 	data := graphicsStateFixture(state.String(), strings.Repeat("/G gs ", 10))
-	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxSemanticObjects: 300}})
+	doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxSemanticObjects: 300}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	pdf, err := BuildPDF(doc)
-	if !errors.Is(err, ErrLimit) {
+	if !errors.Is(err, pdfmodel.ErrLimit) {
 		t.Fatalf("repeated resource entries must exhaust semantic work: %v", err)
 	}
 	if pdf == nil || len(pdf.Diagnostics) != 0 || len(pdf.Pages) != 1 || len(pdf.Pages[0].Operations) != 3 {
@@ -354,13 +356,13 @@ func TestXObjectRepeatedDictionaryWorkConsumesSemanticBudget(t *testing.T) {
 				semanticStream(subtype+unused.String(), ""),
 			)
 			for _, limit := range []int{300, 2000} {
-				doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxSemanticObjects: limit}})
+				doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxSemanticObjects: limit}})
 				if err != nil {
 					t.Fatal(err)
 				}
 				pdf, err := BuildPDF(doc)
 				if limit == 300 {
-					if !errors.Is(err, ErrLimit) {
+					if !errors.Is(err, pdfmodel.ErrLimit) {
 						t.Fatalf("repeated XObject dictionary scans must exhaust semantic work: %v", err)
 					}
 					if pdf == nil || len(pdf.Pages) != 1 || len(pdf.Pages[0].Operations) != 3 {
@@ -385,12 +387,12 @@ func TestExtGStateDashExpansionConsumesValueBudget(t *testing.T) {
 		// Resource expansion and retained styles must both be bounded: the
 		// second case applies the state once but would copy it for every basic graphic.
 		data := graphicsStateFixture("<< /D [["+strings.Repeat("1 ", 100)+"] 0] >>", content)
-		doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: 300}})
+		doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxValues: 300}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		pdf, err := BuildPDF(doc)
-		if !errors.Is(err, ErrLimit) {
+		if !errors.Is(err, pdfmodel.ErrLimit) {
 			t.Fatalf("repeated dash output must exhaust value budget: %v", err)
 		}
 		if pdf == nil || len(pdf.Graphics) != 1 {
@@ -404,12 +406,12 @@ func TestExtGStateValueBudgetBoundary(t *testing.T) {
 	// 32 style values (30 dash + two gray components) require exactly 67.
 	data := graphicsStateFixture("<< /D [["+strings.Repeat("1 ", 30)+"] 0] >>", "/G gs 0 0 1 1 re f")
 	for _, limit := range []int{66, 67} {
-		doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxValues: limit}})
+		doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxValues: limit}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		pdf, err := BuildPDF(doc)
-		if limit == 66 && (!errors.Is(err, ErrLimit) || len(pdf.Graphics) != 0) {
+		if limit == 66 && (!errors.Is(err, pdfmodel.ErrLimit) || len(pdf.Graphics) != 0) {
 			t.Fatalf("over-budget style retained: graphics=%d err=%v", len(pdf.Graphics), err)
 		}
 		if limit == 67 && (err != nil || len(pdf.Graphics) != 1) {
@@ -424,16 +426,16 @@ func TestContentDiagnosticsConsumeBudget(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
 		semanticStream("", "1 i"))
-	for _, limits := range []Limits{
+	for _, limits := range []pdfmodel.Limits{
 		{MaxSemanticObjects: 4}, // two page visits, one stream, one operator, no diagnostic capacity
 		{MaxDecodedBytes: 32},   // input fits, but the expanded diagnostic message does not
 	} {
-		doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: limits})
+		doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: limits})
 		if err != nil {
 			t.Fatal(err)
 		}
 		pdf, err := BuildPDF(doc)
-		if !errors.Is(err, ErrLimit) || pdf == nil || len(pdf.Diagnostics) != 0 || len(pdf.Pages[0].Operations) != 1 {
+		if !errors.Is(err, pdfmodel.ErrLimit) || pdf == nil || len(pdf.Diagnostics) != 0 || len(pdf.Pages[0].Operations) != 1 {
 			t.Fatalf("diagnostic must be charged before retention: pdf=%+v err=%v", pdf, err)
 		}
 	}
@@ -464,15 +466,15 @@ func TestExtGStateResolvesNestedValues(t *testing.T) {
 	if restored := pdf.Graphics[1].State; len(restored.Dash) != 0 || restored.LineWidth != 1 {
 		t.Fatalf("q/Q must restore the earlier state: %+v", restored)
 	}
-	loaded, err := pdf.Document.Load(ObjectID{Number: 5})
+	loaded, err := pdf.Document.Load(pdfmodel.ObjectID{Number: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	font, err := loaded.Body.Value.(Dictionary).Get("Font")
+	font, err := loaded.Body.Value.(pdfmodel.Dictionary).Get("Font")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := font.Value.(Array).Items[1].Value.(Reference); !ok {
+	if _, ok := font.Value.(pdfmodel.Array).Items[1].Value.(pdfmodel.Reference); !ok {
 		t.Fatal("semantic interpretation replaced the original reference")
 	}
 }
@@ -500,7 +502,7 @@ func TestExtGStateInvalidNestedValues(t *testing.T) {
 	} {
 		for _, value := range []string{`/Bad`, `6 0 R`} {
 			data := graphicsStateFixture(state, `/G gs`, value, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`)
-			if _, err := Read(bytes.NewReader(data), int64(len(data))); err == nil || errors.Is(err, ErrLimit) {
+			if _, err := Read(bytes.NewReader(data), int64(len(data))); err == nil || errors.Is(err, pdfmodel.ErrLimit) {
 				t.Fatalf("malformed or cyclic resource must fail without masquerading as a limit: %v", err)
 			}
 		}
@@ -546,7 +548,7 @@ func TestContentMixedOrderUnicodeAndRepeatedImage(t *testing.T) {
 			t.Fatalf("order = %+v", p.Pages[0].Items)
 		}
 	}
-	if p.Images[0].Matrix != (Matrix{2, 0, 0, 3, 10, 20}) || p.Images[1].Matrix != IdentityMatrix() {
+	if p.Images[0].Matrix != (pdfmodel.Matrix{2, 0, 0, 3, 10, 20}) || p.Images[1].Matrix != pdfmodel.IdentityMatrix() {
 		t.Fatalf("image matrices: %+v", p.Images)
 	}
 	if p.Graphics[0].State.LineWidth != 2 || p.Pages[0].MediaBox.Max.Y != 300 {
@@ -598,7 +600,7 @@ func TestContentStandardEncodingQuotes(t *testing.T) {
 func TestContentHonorsGlyphAndOperandDepthLimits(t *testing.T) {
 	for _, content := range []string{`BT /F 10 Tf (` + strings.Repeat("A", 101) + `) Tj ET`, strings.Repeat("[", 20) + strings.Repeat("]", 20) + ` DP`} {
 		data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", content), `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`)
-		d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100, MaxDepth: 8}})
+		d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 100, MaxDepth: 8}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -610,7 +612,7 @@ func TestContentHonorsGlyphAndOperandDepthLimits(t *testing.T) {
 
 func TestContentBoundsRepeatedEmptyPageTreeNodes(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R 3 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [4 0 R 4 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [5 0 R 5 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [6 0 R 6 0 R] /Count 0 >>`, `<< /Type /Pages /Kids [] /Count 0 >>`)
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +639,7 @@ func TestContentDoesNotClaimCustomCIDPositioning(t *testing.T) {
 
 func TestContentBoundsExpandedFontMaps(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", `BT /F 10 Tf (A) Tj ET`), `<< /Type /Font /Subtype /TrueType /ToUnicode 6 0 R >>`, semanticStream("", `1 beginbfrange <00> <64> <0041> endbfrange`))
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +650,7 @@ func TestContentBoundsExpandedFontMaps(t *testing.T) {
 
 func TestContentBoundsExpandedUnicodeText(t *testing.T) {
 	data := semanticFixture(`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`, `<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F 5 0 R >> >> >>`, semanticStream("", `BT /F 10 Tf (`+strings.Repeat("A", 300)+`) Tj ET`), `<< /Type /Font /Subtype /TrueType /ToUnicode 6 0 R >>`, semanticStream("", `1 beginbfchar <41> <`+strings.Repeat("0041", 10)+`> endbfchar`))
-	d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 1024}})
+	d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 1024}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +693,7 @@ func TestContentBoundsCumulativeClipSnapshots(t *testing.T) {
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
 		semanticStream("", strings.Repeat(`0 0 1 1 re W n `, 15)))
-	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
+	doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -750,7 +752,7 @@ func TestSyntheticPDFClassificationAndProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pixels, err := doc.Document.Bytes(Span{Source: source.ID, End: source.Size})
+	pixels, err := doc.Document.Bytes(pdfmodel.Span{Source: source.ID, End: source.Size})
 	if err != nil || !bytes.Equal(pixels, []byte{255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255}) {
 		t.Fatalf("synthetic RGB pixels = %x, error = %v", pixels, err)
 	}
@@ -905,7 +907,7 @@ func TestInlineImageLengthFromDimensions(t *testing.T) {
 	if got := inlinePayload(t, p, 0); !bytes.Equal(got, raw) {
 		t.Fatalf("payload = %v, want %v", got, raw)
 	}
-	if got := p.ImageResources[0].Stream.Boundary; got != StreamRecovered {
+	if got := p.ImageResources[0].Stream.Boundary; got != pdfmodel.StreamRecovered {
 		t.Fatalf("boundary = %v, want StreamRecovered", got)
 	}
 }
@@ -939,7 +941,7 @@ func TestInlineImageExplicitLengthWins(t *testing.T) {
 	if got := inlinePayload(t, p, 0); string(got) != raw {
 		t.Fatalf("payload = %q, want %q", got, raw)
 	}
-	if got := p.ImageResources[0].Stream.Boundary; got != StreamFromLength {
+	if got := p.ImageResources[0].Stream.Boundary; got != pdfmodel.StreamFromLength {
 		t.Fatalf("boundary = %v, want StreamFromLength", got)
 	}
 }

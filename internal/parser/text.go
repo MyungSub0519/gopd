@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
 // Text is one text-show operation. Matrix is in unrotated page user space,
@@ -13,7 +15,7 @@ type Text struct {
 	Unicode          string
 	Font             *FontInfo
 	FontSize         float64
-	Matrix           Matrix
+	Matrix           pdfmodel.Matrix
 	RenderingMode    int
 	Style            PaintStyle
 	DecodeComplete   bool
@@ -23,8 +25,8 @@ type Text struct {
 type Glyph struct {
 	Code           []byte
 	Unicode        string
-	Origin         Point
-	Advance        Point
+	Origin         pdfmodel.Point
+	Advance        pdfmodel.Point
 	DecodeComplete bool
 	WidthKnown     bool
 }
@@ -37,13 +39,13 @@ type DetailedText struct {
 	PositionComplete bool
 	Font             int // index in DetailedPDF.Fonts; -1 when no font was selected
 	FontSize         float64
-	Matrix           Matrix // page-space text matrix before the show operation, before font scaling
+	Matrix           pdfmodel.Matrix // page-space text matrix before the show operation, before font scaling
 	RenderingMode    int
 	Glyphs           []Glyph
 	State            GraphicsState
 }
 
-// ExtractedText is one text-show operation, with independently selected details.
+// ExtractedText is one text-show operation, with details selected by DetailLevel.
 type ExtractedText struct {
 	Unicode        string
 	Font           *FontInfo `json:",omitempty"`
@@ -57,7 +59,7 @@ type ExtractedText struct {
 // TextPosition describes text before the show operation, before font scaling.
 type TextPosition struct {
 	FontSize      float64
-	Matrix        Matrix
+	Matrix        pdfmodel.Matrix
 	RenderingMode int
 	Complete      bool
 }
@@ -73,8 +75,8 @@ func (c *contentInterpreter) executeText(op Operation, index int) error {
 			return fmt.Errorf("nested BT")
 		}
 		c.inText = true
-		c.textMatrix = IdentityMatrix()
-		c.lineMatrix = IdentityMatrix()
+		c.textMatrix = pdfmodel.IdentityMatrix()
+		c.lineMatrix = pdfmodel.IdentityMatrix()
 		c.positionComplete = true
 	case "ET":
 		if e := noOperands(op); e != nil {
@@ -88,11 +90,11 @@ func (c *contentInterpreter) executeText(op Operation, index int) error {
 		if len(op.Operands) != 2 {
 			return fmt.Errorf("operator Tf requires font name and size")
 		}
-		name, ok := op.Operands[0].Value.(Name)
+		name, ok := op.Operands[0].Value.(pdfmodel.Name)
 		if !ok {
 			return fmt.Errorf("operator Tf font is not a name")
 		}
-		size, e := Number(op.Operands[1])
+		size, e := pdfmodel.Number(op.Operands[1])
 		if e != nil {
 			return e
 		}
@@ -145,7 +147,7 @@ func (c *contentInterpreter) executeText(op Operation, index int) error {
 		if e != nil {
 			return e
 		}
-		c.textMatrix = Matrix(n)
+		c.textMatrix = pdfmodel.Matrix(n)
 		c.lineMatrix = c.textMatrix
 		c.positionComplete = true
 	case "Td", "TD":
@@ -177,9 +179,11 @@ func (c *contentInterpreter) executeText(op Operation, index int) error {
 // Emission is the only boundary that chooses a retained output model. The
 // interpreter's transient state and resource caches are shared by both APIs.
 func (c *contentInterpreter) emitText(text DetailedText) {
-	if c.b.result == nil {
+	if c.b.keepDetails() {
 		c.item(ElementText, len(c.b.pdf.Texts))
 		c.b.pdf.Texts = append(c.b.pdf.Texts, text)
+	}
+	if c.b.result == nil {
 		return
 	}
 	b := c.b
@@ -231,7 +235,7 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 		return nil
 	}
 	t := &c.state.text
-	var elements []Object
+	var elements []pdfmodel.Object
 	switch op.Operator {
 	case "Tj", "'":
 		if len(op.Operands) != 1 {
@@ -246,11 +250,11 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			return fmt.Errorf("double quote requires word spacing, character spacing, string")
 		}
 		var e error
-		t.wordSpace, e = Number(op.Operands[0])
+		t.wordSpace, e = pdfmodel.Number(op.Operands[0])
 		if e != nil {
 			return e
 		}
-		t.charSpace, e = Number(op.Operands[1])
+		t.charSpace, e = pdfmodel.Number(op.Operands[1])
 		if e != nil {
 			return e
 		}
@@ -260,7 +264,7 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 		if len(op.Operands) != 1 {
 			return fmt.Errorf("TJ requires one array")
 		}
-		array, ok := op.Operands[0].Value.(Array)
+		array, ok := op.Operands[0].Value.(pdfmodel.Array)
 		if !ok {
 			return fmt.Errorf("TJ operand is not array")
 		}
@@ -278,12 +282,12 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 	}
 	var result strings.Builder
 	for _, element := range elements {
-		raw, ok := element.Value.(PDFString)
+		raw, ok := element.Value.(pdfmodel.PDFString)
 		if !ok {
 			if op.Operator != "TJ" {
 				return fmt.Errorf("text show operand is not a string")
 			}
-			number, e := Number(element)
+			number, e := pdfmodel.Number(element)
 			if e != nil {
 				return e
 			}
@@ -297,10 +301,10 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 			continue
 		}
 		if len(raw.Bytes) > c.b.maxObjects-c.b.glyphCodes {
-			return fmt.Errorf("%w: text character-code byte limit exceeded", ErrLimit)
+			return fmt.Errorf("%w: text character-code byte limit exceeded", pdfmodel.ErrLimit)
 		}
 		c.b.glyphCodes += len(raw.Bytes)
-		if c.b.result == nil {
+		if c.b.keepDetails() {
 			text.RawCodes = append(text.RawCodes, raw.Bytes...)
 		}
 		decoded, codes, complete, decodeError := font.decodeSelected(
@@ -326,13 +330,13 @@ func (c *contentInterpreter) showText(op Operation, index int) error {
 				advance += t.wordSpace * t.hscale
 			}
 			matrix := c.state.graphics.CTM.Mul(c.textMatrix)
-			origin := matrix.Transform(Point{X: 0, Y: t.rise})
-			end := matrix.Transform(Point{X: advance, Y: t.rise})
+			origin := matrix.Transform(pdfmodel.Point{X: 0, Y: t.rise})
+			end := matrix.Transform(pdfmodel.Point{X: advance, Y: t.rise})
 			if !finitePoint(origin) || !finitePoint(end) {
 				return fmt.Errorf("text glyph coordinate overflow")
 			}
 			if c.b.wantGlyphs() {
-				text.Glyphs = append(text.Glyphs, Glyph{Code: code.bytes, Unicode: code.unicode, Origin: origin, Advance: Point{X: end.X - origin.X, Y: end.Y - origin.Y}, DecodeComplete: code.complete, WidthKnown: widthKnown})
+				text.Glyphs = append(text.Glyphs, Glyph{Code: code.bytes, Unicode: code.unicode, Origin: origin, Advance: pdfmodel.Point{X: end.X - origin.X, Y: end.Y - origin.Y}, DecodeComplete: code.complete, WidthKnown: widthKnown})
 			}
 			text.PositionComplete = text.PositionComplete && widthKnown
 			c.positionComplete = c.positionComplete && widthKnown

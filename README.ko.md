@@ -39,11 +39,41 @@ func main() {
 }
 ```
 
-`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. `Positions`, `Styles`, `Glyphs`, `Provenance`로 상세 정보를 선택합니다. `Glyphs`는 텍스트 선택이 필요하며 위치 계산도 활성화합니다. `ParseReader`는 `io.ReaderAt`과 입력 크기를 받습니다.
+`ContentText`, `ContentGraphics`, `ContentImages`, `ContentAnnotations`를 `|`로 조합하거나 `ContentAll`을 선택합니다. 상세 수준은 별도의 `Detail` 옵션으로 지정합니다. `ParseReader`는 `io.ReaderAt`과 입력 크기를 받으며 두 진입점 모두 `*gopd.Result`를 반환합니다.
 
-선택한 종류는 콘텐츠 순회기를 공유합니다. 미선택 결과는 생성하지 않으며 `Provenance`를 켰을 때만 결과가 원본 스냅샷을 보관합니다. 호출 중에는 입력과 디코딩 캐시가 메모리에 남습니다. 스트리밍 파일 읽기나 건너뛴 콘텐츠의 전체 유효성 검사를 보장하지 않습니다.
+| 상세 수준 | 반환 정보 |
+| --- | --- |
+| `DetailBasic` (기본값) | 선택한 콘텐츠와 기본 글꼴 정보 |
+| `DetailLayout` | 기본 정보 + 텍스트·이미지 위치와 그리기 스타일 |
+| `DetailFull` | 배치 정보 + 글리프·연산자·원본 출처와 `Result.Details()` |
 
-기존 `ParsePDF`와 상세 API도 유지됩니다. `ParsePDF`는 `Details()`에 제공할 상세 결과를 계속 보관합니다. 옵션과 사용 예시는 [선택 추출 안내](docs/selective-extraction.md), [기본 API 안내](docs/basic-pdf.md)를 참고하세요.
+```go
+result, err := gopd.ParseFile("file.pdf", gopd.ParseOptions{
+    Content: gopd.ContentText | gopd.ContentImages,
+    Detail:  gopd.DetailFull,
+})
+if result != nil {
+    defer result.Close() // 오류와 함께 반환된 부분 결과도 닫습니다.
+}
+if err != nil {
+    return err // result는 부분 결과일 수 있습니다.
+}
+detail := result.Details() // 선택한 콘텐츠의 상세 결과. 다시 파싱하지 않습니다.
+_ = detail
+```
+
+기존 `Positions`, `Styles`, `Glyphs`, `Provenance` 필드는 `Detail`로 대체되었습니다. 기존 호출 코드는 위치·스타일이 필요하면 Layout, 글리프·출처가 필요하면 Full로 변경해야 합니다. 고정된 레벨이므로 이전의 임의 조합보다 더 많은 정보를 처리할 수 있습니다. [레벨별 계약과 마이그레이션](docs/detail-levels.md)을 참고하세요.
+
+선택한 종류는 콘텐츠 순회기를 공유합니다. 미선택 콘텐츠의 결과는 생성하지 않으며 Full에서만 입력 Document를 보관합니다. Full의 `Details()`는 선택한 상세 요소·글꼴 리소스·그래픽 상태·그리기 순서를 제공합니다. 다른 레벨에서는 nil입니다. Full도 미선택 콘텐츠를 활성화하지 않으며 PDF 전체 지원이나 렌더링을 의미하지 않습니다. 원본 입력은 기본 64 KiB 버퍼로 필요한 범위만 읽으며 `ReadOptions.BufferSize`로 크기를 지정할 수 있습니다. 디코딩된 스트림과 결과에는 기존 메모리 예산이 적용됩니다. 전체 메모리 사용량 제한이나 건너뛴 콘텐츠의 전체 유효성 검사를 보장하지 않습니다.
+
+리소스 제한은 `ParseOptions.ReadOptions`로 설정합니다. 그래픽의 경로와 주석의 사각형은 항상 포함됩니다. 결과는 회전을 적용하지 않은 PDF 사용자 좌표계와 그리기 순서를 사용하며, 읽기 순서를 복원하지 않습니다.
+
+새 코드에는 `ParseFile` / `ParseReader`를 사용합니다. `ParsePDF`, `Open`, `Read`는 기존 반환 타입과 결과 데이터를 유지하지만 반환값의 `Close` 호출이 필요한 호환 API입니다. 객체·바이트·구문을 직접 다루는 `LoadDocument`, `ReadDocument`, `BuildPDF`, `Lex`, `ParseObject`도 계속 `gopd`에서 사용할 수 있습니다.
+
+부분 결과가 반환되어도 항상 오류를 확인하고, 미지원 해석은 진단 정보도 확인합니다. 반환값은 읽기 전용으로 취급합니다. Full 결과·기존 API 결과·저수준 Document는 사용을 마치면 `Close`로 닫으며 오류와 함께 반환된 부분 결과도 닫습니다. Basic과 Layout은 반환 전에 내부 Document를 닫습니다. Document를 닫을 때까지 입력을 열린 상태로 유지하고 변경하지 않아야 합니다. `Document`의 지연 메서드와 `Close`는 동시 호출을 지원하지 않습니다. Reader API는 전달받은 reader를 닫지 않습니다. `Close` 이후에도 생성된 결과 데이터는 사용할 수 있지만 원본 출처 접근은 사용할 수 없습니다. 선택 추출 결과는 `json.Marshal(result)`로 저장할 수 있으며 미선택·빈 필드는 생략될 수 있습니다. `Document`와 내부 상세 결과는 항상 JSON에서 제외되지만 Full의 페이지 연산자는 포함됩니다.
+상세 선언은 [api.go](api.go), [types.go](types.go), 실행 가능한 예제는 [example_test.go](example_test.go)를 참고하세요.
+
+CLI는 `go run ./cmd/gopd -text file.pdf`로 실행합니다. `-json`은 개수 요약, `-layout`은 좌표로 재구성한 줄을 출력합니다.
 
 ## 지원 기능
 
@@ -59,8 +89,11 @@ GoPD는 PDF에 담긴 콘텐츠와 그 콘텐츠를 구성하는 내부 구조�
 현재는 이 목표의 일부를 구현한 단계이며, 복잡한 색 공간·투명도 효과, 암호화된 콘텐츠 등의 해석에는 제한이 있습니다. 인라인 이미지와 이미지 XObject는 위치와 메타데이터만 제공하며 픽셀로 디코딩하지 않습니다.
 
 현재 처리 범위와 제한 설정은 [리소스 제한 문서](docs/resource-limits.md)를 참고하세요.
-[기여 안내](CONTRIBUTING.md)와 [공개 전 점검 항목](docs/release-checklist.md)도 제공합니다.
+개발 검증 절차는 [기여 안내](CONTRIBUTING.md)를 참고하세요.
+
+구현과 리뷰에는 [PDF 표준 구현 지침](docs/pdf-spec-conformance.md)을 적용합니다.
+초기 기준은 PDF 1.7 / ISO 32000-1:2008이며, Adobe 확장과 PDF 2.0은 별도로 관리합니다.
 
 ## 프로젝트 구조
 
-루트 패키지는 공개 API와 타입 별칭을 제공합니다. 콘텐츠 해석·선택 추출·결과 모델은 `internal/parser`에, 공통 PDF 모델·구문 분석·문서 읽기·테스트 입력 생성기는 `internal/common`의 하위 패키지에 있습니다. 파일별 역할과 의존 방향은 [프로젝트 구조 안내](docs/project-structure.md)를 참고하세요.
+루트 패키지는 공개 API와 타입 별칭을 제공합니다. 콘텐츠 해석·선택 추출·결과 모델은 `internal/parser`에, 공통 PDF 모델·구문 분석·문서 읽기·테스트 입력 생성기는 각각 `internal/pdfmodel`, `internal/syntax`, `internal/document`, `internal/pdftest`에 있습니다. CLI는 `cmd/gopd`에 있습니다.

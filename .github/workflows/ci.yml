@@ -77,13 +77,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: ./internal/common/syntax
+          - package: ./internal/syntax
             target: FuzzLex
-          - package: ./internal/common/syntax
+          - package: ./internal/syntax
             target: FuzzParseObject
-          - package: ./internal/common/document
+          - package: ./internal/document
             target: FuzzDocument
-          - package: ./internal/common/document
+          - package: ./internal/document
             target: FuzzDecodeFilters
           - package: ./internal/parser
             target: FuzzToUnicodeBounded

@@ -4,32 +4,13 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/MyungSub0519/gopd"
-	"github.com/MyungSub0519/gopd/internal/common/pdftest"
+	"github.com/MyungSub0519/gopd/internal/pdftest"
 )
-
-func ExampleParseFile() {
-	result, err := gopd.ParseFile("testdata/synthetic.pdf", gopd.ParseOptions{})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	for _, page := range result.Pages {
-		for _, text := range page.Texts {
-			fmt.Println(text.Unicode)
-		}
-	}
-	// Output:
-	// GoPD synthetic fixture
-	// Alpha beta 123
-	// Page two: shared resources
-	// Reusable form
-}
 
 const publicContent = "0 0 m 10 10 l S BT /F 12 Tf 1 0 0 1 20 30 Tm (A) Tj ET"
 
@@ -70,6 +51,7 @@ func checkPublicDetail(t *testing.T, detail *gopd.DetailedPDF) {
 func TestPublicBasicAndDetailedEntryPoints(t *testing.T) {
 	path, data := publicFixture(t)
 	basic, err := gopd.ParsePDF(path)
+	closePublicInputOnCleanup(t, basic)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +64,7 @@ func TestPublicBasicAndDetailedEntryPoints(t *testing.T) {
 		func() (*gopd.DetailedPDF, error) { return gopd.Read(bytes.NewReader(data), int64(len(data))) },
 	} {
 		detail, err := open()
+		closePublicInputOnCleanup(t, detail)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -103,6 +86,7 @@ func TestPublicDocumentObjectsAndStreams(t *testing.T) {
 		},
 	} {
 		doc, err := parse()
+		closePublicInputOnCleanup(t, doc)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,8 +211,9 @@ func TestPublicParseEntryPoints(t *testing.T) {
 			}
 
 			detailed, err := entry.parse(gopd.ParseOptions{
-				Content: gopd.ContentAll, Glyphs: true, Styles: true, Provenance: true,
+				Content: gopd.ContentAll, Detail: gopd.DetailFull,
 			})
+			closePublicInputOnCleanup(t, detailed)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -240,8 +225,8 @@ func TestPublicParseEntryPoints(t *testing.T) {
 				t.Fatal("extraction options lost text details")
 			}
 
-			if _, err := entry.parse(gopd.ParseOptions{Content: gopd.ContentImages, Glyphs: true}); err == nil {
-				t.Fatal("glyph extraction without text must fail")
+			if _, err := entry.parse(gopd.ParseOptions{Detail: gopd.DetailLevel(255)}); err == nil {
+				t.Fatal("unknown detail level must fail")
 			}
 			if _, err := entry.parse(gopd.ParseOptions{
 				ReadOptions: gopd.ReadOptions{MaxFileBytes: int64(len(data) - 1)},

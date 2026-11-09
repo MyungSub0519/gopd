@@ -9,6 +9,9 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
+	"github.com/MyungSub0519/gopd/internal/syntax"
 )
 
 type CodeSpace struct{ Low, High []byte }
@@ -20,7 +23,7 @@ type CMap struct {
 
 const maxCMapEntries = 65536
 
-var errCMapLimit = fmt.Errorf("CMap: %w", ErrLimit)
+var errCMapLimit = fmt.Errorf("CMap: %w", pdfmodel.ErrLimit)
 
 type decodedCode struct {
 	bytes    []byte
@@ -39,13 +42,13 @@ func parseToUnicodeBounded(data []byte, entryLimit int, byteLimit int64) (*CMap,
 		return nil, errCMapLimit
 	}
 	entryLimit = min(entryLimit, maxCMapEntries)
-	tokens, err := Lex(data, 1, 0)
+	tokens, err := syntax.Lex(data, 1, 0)
 	if err != nil {
 		return nil, err
 	}
 	var raw []string
 	for _, t := range tokens {
-		if t.Kind != TokenWhitespace && t.Kind != TokenComment && t.Kind != TokenEOF {
+		if t.Kind != pdfmodel.TokenWhitespace && t.Kind != pdfmodel.TokenComment && t.Kind != pdfmodel.TokenEOF {
 			raw = append(raw, string(data[t.Span.Start:t.Span.End]))
 		}
 	}
@@ -342,7 +345,7 @@ func (c *CMap) decodeSelected(raw []byte, limit int64, collectCodes bool) (strin
 			complete = false
 		}
 		if int64(len(u)) > limit-int64(out.Len()) {
-			return "", nil, false, fmt.Errorf("%w: expanded Unicode text byte limit exceeded", ErrLimit)
+			return "", nil, false, fmt.Errorf("%w: expanded Unicode text byte limit exceeded", pdfmodel.ErrLimit)
 		}
 		out.WriteString(u)
 		if collectCodes {

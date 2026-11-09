@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/MyungSub0519/gopd/internal/document"
+	"github.com/MyungSub0519/gopd/internal/pdfmodel"
 )
 
 func fontFixture(font, content string, extras ...string) []byte {
@@ -33,7 +36,7 @@ func TestFontDifferencesImplicitBase(t *testing.T) {
 func TestFontCMapExpansionBudget(t *testing.T) {
 	cmap := `1 beginbfrange <00> <FF> <` + strings.Repeat("0061", 255) + `0000> endbfrange`
 	data := fontFixture(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>`, `BT /F 10 Tf ET`, semanticStream("", cmap))
-	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 4096}})
+	doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 4096}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +48,7 @@ func TestFontCMapExpansionBudget(t *testing.T) {
 func TestFontCMapEntryBudget(t *testing.T) {
 	data := fontFixture(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>`, `BT /F 10 Tf ET`,
 		semanticStream("", `1 beginbfrange <00> <64> <0000> endbfrange`))
-	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 64}})
+	doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 64}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +60,11 @@ func TestFontCMapEntryBudget(t *testing.T) {
 func TestFontToUnicodeStreamLimit(t *testing.T) {
 	data := fontFixture(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>`, `BT /F 10 Tf ET`,
 		semanticStream("", strings.Repeat(" ", 512)+`1 beginbfchar <01> <0041> endbfchar`))
-	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 256}})
+	doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 256}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildPDF(doc); !errors.Is(err, ErrLimit) {
+	if _, err := BuildPDF(doc); !errors.Is(err, pdfmodel.ErrLimit) {
 		t.Fatalf("ToUnicode stream limit = %v", err)
 	}
 }
@@ -159,7 +162,7 @@ func TestFontCMapSharedBudget(t *testing.T) {
 				semanticStream("", cmap),
 				fmt.Sprintf(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode %d 0 R >>`, secondMap),
 				semanticStream("", cmap))
-			doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxDecodedBytes: 4096}})
+			doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxDecodedBytes: 4096}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -208,11 +211,11 @@ func TestFontWidthBudgetReturnsErrLimit(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			data := fontFixture(test.font, `BT /F 10 Tf ET`, test.extras...)
-			d, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 20}})
+			d, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 20}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := BuildPDF(d); !errors.Is(err, ErrLimit) {
+			if _, err := BuildPDF(d); !errors.Is(err, pdfmodel.ErrLimit) {
 				t.Fatalf("font width budget must return ErrLimit: %v", err)
 			}
 		})
@@ -229,7 +232,7 @@ func TestFontDecodedTextBudgetReturnsErrLimit(t *testing.T) {
 		{"unmapped", Font{}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, _, _, err := test.font.decodeBounded([]byte("AA"), 5); !errors.Is(err, ErrLimit) {
+			if _, _, _, err := test.font.decodeBounded([]byte("AA"), 5); !errors.Is(err, pdfmodel.ErrLimit) {
 				t.Fatalf("text expansion must return ErrLimit: %v", err)
 			}
 			text, _, _, err := test.font.decodeBounded([]byte("AA"), 6)
@@ -243,7 +246,7 @@ func TestFontDecodedTextBudgetReturnsErrLimit(t *testing.T) {
 func TestFontInvalidCIDRangeIsNotResourceLimit(t *testing.T) {
 	for _, widths := range []string{`[65535 [500 500]]`, `[0 65536 500]`} {
 		data := fontFixture(`<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] >>`, `BT /F 10 Tf ET`, `<< /Subtype /CIDFontType2 /W `+widths+` >>`)
-		if _, err := Read(bytes.NewReader(data), int64(len(data))); err == nil || errors.Is(err, ErrLimit) {
+		if _, err := Read(bytes.NewReader(data), int64(len(data))); err == nil || errors.Is(err, pdfmodel.ErrLimit) {
 			t.Fatalf("invalid CID range is a format error: %v", err)
 		}
 	}
@@ -270,7 +273,7 @@ func TestFontDifferencesIndirectItems(t *testing.T) {
 			if len(pdf.Texts) != 1 || pdf.Texts[0].Unicode != "BC" || !pdf.Texts[0].DecodeComplete {
 				t.Fatalf("decoded text = %+v, want BC with complete decoding", pdf.Texts)
 			}
-			encoding := pdf.Fonts[0].Encoding.Value.(Dictionary)
+			encoding := pdf.Fonts[0].Encoding.Value.(pdfmodel.Dictionary)
 			differences, err := encoding.Get("Differences")
 			if err != nil {
 				t.Fatal(err)
@@ -279,12 +282,12 @@ func TestFontDifferencesIndirectItems(t *testing.T) {
 			if err != nil || string(raw) != tc.differences {
 				t.Fatalf("preserved Differences = %q, %v; want %q", raw, err, tc.differences)
 			}
-			items := differences.Value.(Array).Items
+			items := differences.Value.(pdfmodel.Array).Items
 			index := 0
 			if tc.name == "glyph" {
 				index = 1
 			}
-			if _, ok := items[index].Value.(Reference); !ok {
+			if _, ok := items[index].Value.(pdfmodel.Reference); !ok {
 				t.Fatalf("original Differences item was rewritten: %+v", items[index])
 			}
 		})
@@ -397,7 +400,15 @@ func TestExtractUnicodeSkipsFontMetrics(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			data := fontFixture(test.font, `BT /F 10 Tf (A) Tj ET`, test.extras...)
+			// Undefined references are null, not errors (ISO 7.3.10). A cycle
+			// still fails when accessed and proves unused metrics stay unread.
+			cycle := fmt.Sprintf("%d 0 R", 6+len(test.extras))
+			extras := make([]string, 0, len(test.extras)+1)
+			for _, extra := range test.extras {
+				extras = append(extras, strings.ReplaceAll(extra, "99 0 R", cycle))
+			}
+			extras = append(extras, cycle)
+			data := fontFixture(strings.ReplaceAll(test.font, "99 0 R", cycle), `BT /F 10 Tf (A) Tj ET`, extras...)
 			got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText})
 			if err != nil {
 				t.Fatalf("Unicode extraction resolved unused metrics: %v", err)
@@ -405,7 +416,7 @@ func TestExtractUnicodeSkipsFontMetrics(t *testing.T) {
 			if len(got.Pages[0].Texts) != 1 || got.Pages[0].Texts[0].Unicode != "A" || !got.Pages[0].Texts[0].DecodeComplete {
 				t.Fatalf("Unicode text=%+v, want A", got.Pages[0].Texts)
 			}
-			_, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText, Positions: true})
+			_, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText, Detail: DetailLayout})
 			if err == nil {
 				t.Fatal("positioned text must resolve required metrics")
 			}
@@ -415,17 +426,20 @@ func TestExtractUnicodeSkipsFontMetrics(t *testing.T) {
 
 func TestExtractPositionsSkipsEmbeddedFontStream(t *testing.T) {
 	t.Parallel()
-	data := fontFixture(`<< /Subtype /Type1 /BaseFont /Helvetica /FontDescriptor << /MissingWidth 500 /FontFile 99 0 R >> >>`, `BT /F 10 Tf (AA) Tj ET`)
-	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText, Glyphs: true})
+	data := fontFixture(`<< /Subtype /Type1 /BaseFont /Helvetica /FontDescriptor << /MissingWidth 500 /FontFile 6 0 R >> >>`, `BT /F 10 Tf (A) Tj (A) Tj ET`, "6 0 R")
+	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentText, Detail: DetailLayout})
 	if err != nil {
 		t.Fatalf("positioned extraction resolved unused font stream: %v", err)
 	}
-	text := got.Pages[0].Texts[0]
-	if text.Unicode != "AA" || len(text.Glyphs) != 2 {
-		t.Fatalf("positioned text=%+v", text)
+	texts := got.Pages[0].Texts
+	if len(texts) != 2 || texts[0].Unicode != "A" || texts[1].Unicode != "A" {
+		t.Fatalf("positioned text=%+v", texts)
 	}
-	if !text.Position.Complete || text.Glyphs[1].Origin != (Point{X: 5}) || text.Glyphs[1].Advance != (Point{X: 5}) {
-		t.Fatalf("MissingWidth was not used for glyph positions: %+v", text.Glyphs)
+	if texts[1].Position == nil || !texts[1].Position.Complete || texts[1].Position.Matrix[4] != 5 || len(texts[1].Glyphs) != 0 {
+		t.Fatalf("MissingWidth was not used for layout: %+v", texts[1])
+	}
+	if _, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Detail: DetailFull}); err == nil {
+		t.Fatal("Full must resolve the retained embedded font reference")
 	}
 	if _, err := Read(bytes.NewReader(data), int64(len(data))); err == nil {
 		t.Fatal("legacy detailed parsing must keep resolving the embedded font")
@@ -504,7 +518,7 @@ func TestFontDecodeSelected(t *testing.T) {
 				if !collect && codes != nil {
 					t.Fatalf("Unicode-only decoding returned character details: %+v", codes)
 				}
-				if _, _, _, err := test.font.decodeSelected(test.raw, int64(len(test.want)-1), collect); !errors.Is(err, ErrLimit) {
+				if _, _, _, err := test.font.decodeSelected(test.raw, int64(len(test.want)-1), collect); !errors.Is(err, pdfmodel.ErrLimit) {
 					t.Fatalf("collect=%v: UTF-8 byte limit error=%v", collect, err)
 				}
 			}
@@ -534,7 +548,7 @@ func TestFontBoundsRepeatedCIDWidthExpansion(t *testing.T) {
 		semanticStream("", `BT /F 10 Tf <0001> Tj ET`),
 		`<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding /Identity-H /DescendantFonts [6 0 R] >>`,
 		`<< /Type /Font /Subtype /CIDFontType2 /W [0 99 500 0 99 500] >>`)
-	doc, err := ReadDocument(bytes.NewReader(data), int64(len(data)), ReadOptions{Limits: Limits{MaxObjects: 100}})
+	doc, err := document.Read(bytes.NewReader(data), int64(len(data)), document.ReadOptions{Limits: pdfmodel.Limits{MaxObjects: 100}})
 	if err != nil {
 		t.Fatal(err)
 	}
