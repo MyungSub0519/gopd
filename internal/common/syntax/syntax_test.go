@@ -551,3 +551,63 @@ func FuzzLex(f *testing.F) {
 		}
 	})
 }
+
+// readInlineImage scans content up to its first operator, which must be BI,
+// and reads the inline image that follows.
+func readInlineImage(t *testing.T, content string) (pdfmodel.Stream, *ContentScanner, error) {
+	t.Helper()
+	scanner, err := NewContentScanner([]byte(content), 1, 0, pdfmodel.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, operator, _, err := scanner.Next(1 << 20)
+	if err != nil || !operator || object.Value != pdfmodel.Name("BI") {
+		t.Fatalf("first operator = %+v, %v", object, err)
+	}
+	stream, _, err := scanner.InlineImage(1 << 20)
+	return stream, scanner, err
+}
+
+func TestInlineImageResumesAfterEI(t *testing.T) {
+	content := "BI /W 2 /H 1 /CS /G ID \x01\x02 EI Q"
+	stream, scanner, err := readInlineImage(t, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := content[stream.Encoded.Start:stream.Encoded.End]; got != "\x01\x02" {
+		t.Fatalf("payload = %q", got)
+	}
+	if got := content[stream.DictionarySpan.Start:stream.DictionarySpan.End]; got != " /W 2 /H 1 /CS /G " {
+		t.Fatalf("dictionary span = %q", got)
+	}
+	if got := content[stream.EndKeyword.Start:stream.EndKeyword.End]; got != "EI" {
+		t.Fatalf("end keyword = %q", got)
+	}
+	object, operator, _, err := scanner.Next(1 << 20)
+	if err != nil || !operator || object.Value != pdfmodel.Name("Q") {
+		t.Fatalf("operator after EI = %+v, %v", object, err)
+	}
+}
+
+func TestInlineImageSearchIsBounded(t *testing.T) {
+	// Every decoy EI is followed by an unmatched ')', so each is rejected;
+	// past the candidate limit the search must stop rather than keep going.
+	content := "BI /F /Fl ID " + strings.Repeat("x EI )", maxInlineImageCandidates+1) + " EI"
+	_, _, err := readInlineImage(t, content)
+	if !errors.Is(err, pdfmodel.ErrLimit) {
+		t.Fatalf("decoy search error = %v, want ErrLimit", err)
+	}
+}
+
+func TestInlineImageLookaheadAcceptsTokenAtWindowEdge(t *testing.T) {
+	// A string longer than the lookahead window after the real EI is cut off
+	// by the window, which must not count against the candidate.
+	long := "(" + strings.Repeat("a", inlineImageLookaheadBytes) + ") Tj"
+	stream, _, err := readInlineImage(t, "BI /F /Fl ID \x01 EI "+long)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stream.Boundary != pdfmodel.StreamRecovered || stream.Encoded.End-stream.Encoded.Start != 1 {
+		t.Fatalf("stream = %+v", stream)
+	}
+}

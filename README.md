@@ -65,7 +65,7 @@ GoPD aims to provide detailed interpretation of PDF content and the internal str
 - **Internal file structure** — Analyze PDF objects and indirect references, compressed object streams, xref tables and streams, and the chain of incremental updates.
 - **Source traceability** — Trace interpreted elements back to the commands and objects that produced them, down to byte ranges in the original or decoded data.
 
-These goals are partially implemented. Interpretation of complex color spaces, transparency effects, inline images, and encrypted content remains limited.
+These goals are partially implemented. Interpretation of complex color spaces, transparency effects, and encrypted content remains limited. Inline and XObject images are located and described but not decoded.
 
 See [resource limits and interpretation](docs/resource-limits.md),
 [contributing](CONTRIBUTING.md), and the [release checklist](docs/release-checklist.md)

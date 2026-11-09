@@ -155,7 +155,10 @@ Follow each input source's derivation to reach the original file.
   the source model.
 - Optional-content visibility on Form/Image XObjects is not evaluated. Content is
   retained with a diagnostic and incomplete interpretation flags.
-- Encrypted content, inline images and unsupported filters/effects remain limited;
+- Inline images locate their payload by `/L`, by the size of an unfiltered
+  image, or by searching for `EI` followed by clean syntax. The search examines
+  at most 512 bytes after each candidate and rejects at most 64 candidates.
+- Encrypted content and unsupported filters/effects remain limited;
   success is not a claim of complete rendering. Check errors, diagnostics and
   completeness flags.
 - Results are read-only by convention. Lazy Document methods are not concurrent-safe.

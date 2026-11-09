@@ -597,3 +597,20 @@ func TestToUnicodeCodeSpaceLimit(t *testing.T) {
 		t.Fatalf("codespace resource limit = %v", err)
 	}
 }
+
+func TestGlyphUnicodeUsesAdobeGlyphList(t *testing.T) {
+	cases := map[string]string{
+		"A": "A", "space": " ", "colon": ":", "eight": "8",
+		"ae": "æ", "Euro": "€", "fi": "ﬁ", "Delta": "∆",
+		"uni20AC": "€", "u1D504": "𝔄", "notaglyph": "",
+	}
+	for name, want := range cases {
+		got, ok := glyphUnicode(name)
+		if ok != (want != "") || got != want {
+			t.Errorf("glyphUnicode(%q) = %q, %v; want %q", name, got, ok, want)
+		}
+	}
+	if n := len(glyphlist()); n < 4000 {
+		t.Fatalf("glyph list has %d entries, want the full Adobe list", n)
+	}
+}

@@ -41,6 +41,7 @@
 // Always check returned errors, including when a partial result is non-nil.
 // Unsupported effects may instead be reported in result diagnostics. Selective
 // parsing does not validate skipped resources or unrequested interpretation.
+// Image bytes, inline or XObject, are located but never decoded.
 // Coordinates use unrotated PDF user space, and content order is drawing order,
 // not reconstructed reading order. Rendering, OCR, and PDF editing are outside
 // the current implementation.

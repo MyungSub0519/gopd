@@ -34,6 +34,7 @@ gopd/
 │       ├── interpreter.go         공통 상태·콘텐츠 구문 분석·명령 분배·출처
 │       ├── resource.go            리소스 조회·XObject 분배·Form·ExtGState
 │       ├── font.go                글꼴 타입과 리소스 해석
+│       ├── glyphlist.go           내장 Adobe Glyph List 조회
 │       ├── cmap.go                CMap·CodeSpace 타입과 문자 매핑
 │       ├── style.go               스타일 타입·기본 및 선택 추출용 변환
 │       ├── basic.go               PDF·Details()·기본 결과 변환
@@ -63,11 +64,12 @@ gopd/
 | [page.go](../internal/parser/page.go) | `DetailedPage`, `ExtractedPage`, `walkPages`, `interpretPage` | 페이지 결과와 페이지 트리·상속 속성 해석, 콘텐츠 연결·실행을 함께 둡니다. 상세 페이지의 `Items`는 텍스트·그래픽·이미지가 섞인 실행 순서를 보존합니다. |
 | [text.go](../internal/parser/text.go) | `Text`, `DetailedText`, `ExtractedText`, `Glyph`, `TextPosition`, `executeText`, `moveText`, `showText`, `emitText` | 기본·상세·선택 추출의 텍스트 타입과 텍스트 명령 실행·결과 저장을 함께 둡니다. 문자 표시에서 텍스트·글리프·이동량을 만들고 텍스트 위치를 갱신합니다. |
 | [graphic.go](../internal/parser/graphic.go) | `Graphic`, `DetailedGraphic`, `ExtractedGraphic`, `PathSegment`, `DetailedPathSegment`, `executeGraphic`, `emitGraphic` | 그래픽 타입과 경로·그리기·클리핑·출력을 담당합니다. 콘텐츠 명령과 ExtGState가 같은 선·점선 검증 함수를 사용하며, 리소스를 가짜 명령으로 다시 실행하지 않습니다. |
-| [image.go](../internal/parser/image.go) | `DetailedImage`, `ImageResource`, `ExtractedImage`, `ExtractedImageResource`, `emitImage`, `emitImageResource` | 이미지 사용과 공유 리소스의 타입, Image XObject 해석 및 결과 저장을 함께 둡니다. |
+| [image.go](../internal/parser/image.go) | `DetailedImage`, `ImageResource`, `ExtractedImage`, `ExtractedImageResource`, `inlineImage`, `placeImage`, `emitImageResource` | 이미지 사용과 공유 리소스의 타입, Image XObject와 인라인 이미지(BI/ID/EI) 해석 및 결과 저장을 함께 둡니다. 이미지 바이트는 위치만 기록하고 디코딩하지 않습니다. |
 | [annotation.go](../internal/parser/annotation.go) | `Annotation`, `ExtractedAnnotation`, `readAnnotations`, `emitAnnotation` | 주석 타입과 페이지 주석 해석·결과 저장을 함께 둡니다. |
 | [interpreter.go](../internal/parser/interpreter.go) | `contentInterpreter`, `contentState`, `textState`, `interpretSource`, `execute`, `Operation`, `ElementSource`, `FormCall` | 콘텐츠 구문 분석, 공통 상태와 명령 분배를 담당합니다. 실행 명령 및 결과의 페이지·명령·바이트 출처 타입도 정의합니다. |
 | [resource.go](../internal/parser/resource.go) | `resource`, `xobject`, `extGState` | 리소스 조회, XObject 종류별 분배, Form 실행, ExtGState의 참조 해석과 상태 적용을 담당합니다. 이미지 처리는 `image.go`로 위임하며 반복 딕셔너리 검사와 숫자 배열 확장 전에 예산을 확인합니다. |
 | [font.go](../internal/parser/font.go) | `FontInfo`, `Font`, `font`, `cidWidths`, `simpleFontEncoding`, `decodeBounded` | 기본·상세 글꼴 타입과 글꼴 리소스의 종류·이름·인코딩·문자 폭·ToUnicode 정보를 함께 둡니다. 문자 코드를 해석하고 글리프 위치 계산에 필요한 폭 정보를 제공합니다. |
+| [glyphlist.go](../internal/parser/glyphlist.go) | `glyphlist` | `go:embed`로 내장한 Adobe Glyph List(`glyphlist.txt`)를 처음 사용할 때 한 번 읽어 `/Differences`의 글리프 이름을 Unicode로 변환합니다. |
 | [cmap.go](../internal/parser/cmap.go) | `CodeSpace`, `CMap`, `parseToUnicode`, `decodeBounded` | ToUnicode CMap을 읽어 PDF 글꼴의 문자 코드와 Unicode 문자열을 연결합니다. 코드 길이와 매핑 범위를 처리하고 디코딩 결과의 완전성 및 출력 크기 제한을 관리합니다. |
 | [style.go](../internal/parser/style.go) | `Color`, `PaintStyle`, `GraphicsState`, `ClipPath`, `basicStyle`, `extractStyle` | 색상, 선 두께, 점선, 투명도, 혼합 모드와 클리핑 정보를 정의하고 기본·선택 추출용 스타일로 변환합니다. |
 | [basic.go](../internal/parser/basic.go) | `PDF`, `Details`, `basicPDF` | 상세 결과를 기본 결과의 페이지별 텍스트·그래픽 배열로 변환합니다. `Details()`는 저장해 둔 상세 결과를 반환합니다. |
@@ -97,6 +99,8 @@ PDF 파일의 물리적 구조를 다루는 패키지입니다. xref는 객체 �
 | --- | --- | --- |
 | [lexer.go](../internal/common/syntax/lexer.go) | `Lex`, `syntaxScanner` | 숫자, 이름, 문자열, 구분자, 공백, 주석 등의 토큰을 구분하고 소스의 바이트 위치를 보존합니다. 토큰 크기와 개수 제한도 검사합니다. |
 | [parser.go](../internal/common/syntax/parser.go) | `ParseObject`, `ParseObjectWithLimits`, `objectParser` | 토큰을 숫자·문자열·배열·사전·간접 참조 등의 `Object`로 조립합니다. 이름 및 문자열의 이스케이프와 16진 표현을 해석하고, 중첩 깊이 등 제한을 검사합니다. |
+| [content.go](../internal/common/syntax/content.go) | `ContentScanner` | 콘텐츠 스트림의 피연산자와 연산자를 토큰 목록 없이 차례로 읽습니다. |
+| [inline_image.go](../internal/common/syntax/inline_image.go) | `ContentScanner.InlineImage`, `InlineImageEntry` | `BI` 뒤의 사전과 이미지 바이트, `EI`를 읽습니다. 경계는 `/L`, 필터 없는 이미지의 크기, 뒤따르는 구문을 확인한 `EI` 탐색 순으로 정합니다. |
 | [doc.go](../internal/common/syntax/doc.go) | `syntax` 패키지 문서 | 독립된 바이트 범위의 토큰화와 객체 구문 분석이라는 책임을 설명합니다. |
 
 예를 들어 `<< /Type /Page /Contents 12 0 R >>`를 사전과 참조 값으로 만드는 곳은 `syntax`, `12 0 R`이 가리키는 객체를 찾는 곳은 `document`, 그 내용에서 텍스트와 그래픽을 만드는 곳은 `internal/parser`입니다.

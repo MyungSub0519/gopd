@@ -82,77 +82,15 @@ func (c *contentInterpreter) contentSource(stream Stream) (Source, error) {
 	return source, nil
 }
 
+// interpretSource scans one content stream operator by operator. Scanning is
+// incremental so that an inline image payload, which is not PDF syntax, can be
+// skipped once its BI dictionary says where it ends.
 func (c *contentInterpreter) interpretSource(source Source) error {
 	data, err := c.b.doc.Bytes(Span{Source: source.ID, Start: 0, End: source.Size})
 	if err != nil {
 		return err
 	}
-	if c.b.result != nil {
-		return c.interpretSelected(data, source.ID)
-	}
-	tokens, err := Lex(data, source.ID, 0)
-	if err != nil {
-		return fmt.Errorf("content at source %d: %w", source.ID, err)
-	}
-	for i := 0; i < len(tokens); {
-		token := tokens[i]
-		if token.Kind == TokenWhitespace || token.Kind == TokenComment || token.Kind == TokenEOF {
-			i++
-			continue
-		}
-		word := string(data[token.Span.Start:token.Span.End])
-		if token.Kind == TokenKeyword && word != "true" && word != "false" && word != "null" {
-			if err := c.b.chargeSemantic("content operation", token.Span); err != nil {
-				return err
-			}
-			c.b.operations++
-			if c.b.operations > c.b.maxObjects {
-				return fmt.Errorf("%w: content operation limit at %+v", ErrLimit, token.Span)
-			}
-			op := Operation{Operator: word, Operands: c.operands, Span: token.Span, FormPath: append([]FormCall(nil), c.formPath...)}
-			c.operands = nil
-			index := len(c.b.pdf.Pages[c.page].Operations)
-			c.b.pdf.Pages[c.page].Operations = append(c.b.pdf.Pages[c.page].Operations, op)
-			if err = c.execute(op, index); err != nil {
-				return fmt.Errorf("operator %s at source %d offset %d: %w", word, token.Span.Source, token.Span.Start, err)
-			}
-			i++
-			continue
-		}
-		object, consumed, values, e := syntax.ParseObjectWithValueBudget(data[token.Span.Start:], source.ID, token.Span.Start, c.b.doc.Options.Limits, c.b.maxValues-c.b.semanticValues)
-		c.b.semanticValues += values
-		if e != nil {
-			return e
-		}
-		if consumed <= 0 {
-			return fmt.Errorf("content parser made no progress at %+v", token.Span)
-		}
-		c.operands = append(c.operands, object)
-		if len(c.operands) > 65536 {
-			return fmt.Errorf("%w: content operand limit at %+v", ErrLimit, token.Span)
-		}
-		end := token.Span.Start + int64(consumed)
-		for i < len(tokens) && tokens[i].Span.Start < end {
-			i++
-		}
-	}
-	return nil
-}
-
-func (c *contentInterpreter) source(op Operation, index int) ElementSource {
-	if !c.b.wantProvenance() {
-		return ElementSource{Page: c.page}
-	}
-	spans := make([]Span, 0, len(op.Operands)+1)
-	for _, operand := range op.Operands {
-		spans = append(spans, operand.Span)
-	}
-	spans = append(spans, op.Span)
-	return ElementSource{Page: c.page, Spans: spans, Operations: []int{index}, FormPath: append([]FormCall(nil), c.formPath...)}
-}
-
-func (c *contentInterpreter) interpretSelected(data []byte, source SourceID) error {
-	scanner, err := syntax.NewContentScanner(data, source, 0, c.b.doc.Options.Limits)
+	scanner, err := syntax.NewContentScanner(data, source.ID, 0, c.b.doc.Options.Limits)
 	if err != nil {
 		return err
 	}
@@ -163,7 +101,7 @@ func (c *contentInterpreter) interpretSelected(data []byte, source SourceID) err
 			return nil
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("content at source %d: %w", source.ID, err)
 		}
 		if !operator {
 			c.operands = append(c.operands, object)
@@ -181,6 +119,11 @@ func (c *contentInterpreter) interpretSelected(data []byte, source SourceID) err
 		}
 		op := Operation{Operator: string(object.Value.(Name)), Operands: c.operands, Span: object.Span}
 		c.operands = nil
+		if op.Operator == "BI" {
+			if err := c.inlineImage(scanner, &op); err != nil {
+				return fmt.Errorf("inline image at source %d offset %d: %w", source.ID, op.Span.Start, err)
+			}
+		}
 		index := -1
 		if c.b.wantProvenance() {
 			op.FormPath = append([]FormCall(nil), c.formPath...)
@@ -189,9 +132,21 @@ func (c *contentInterpreter) interpretSelected(data []byte, source SourceID) err
 			page.Operations = append(page.Operations, op)
 		}
 		if err := c.execute(op, index); err != nil {
-			return fmt.Errorf("operator %s at source %d offset %d: %w", op.Operator, source, op.Span.Start, err)
+			return fmt.Errorf("operator %s at source %d offset %d: %w", op.Operator, source.ID, op.Span.Start, err)
 		}
 	}
+}
+
+func (c *contentInterpreter) source(op Operation, index int) ElementSource {
+	if !c.b.wantProvenance() {
+		return ElementSource{Page: c.page}
+	}
+	spans := make([]Span, 0, len(op.Operands)+1)
+	for _, operand := range op.Operands {
+		spans = append(spans, operand.Span)
+	}
+	spans = append(spans, op.Span)
+	return ElementSource{Page: c.page, Spans: spans, Operations: []int{index}, FormPath: append([]FormCall(nil), c.formPath...)}
 }
 
 func (c *contentInterpreter) item(kind ElementKind, index int) {
@@ -324,11 +279,11 @@ func (c *contentInterpreter) execute(op Operation, index int) error {
 			return e
 		}
 		return c.xobject(name, op, index)
-	case "BI", "ID", "EI":
-		if c.b.result != nil && !c.b.wantProvenance() {
-			return fmt.Errorf("inline image content is unsupported")
-		}
-		return fmt.Errorf("inline image content is unsupported; original content source is retained")
+	case "BI":
+		return c.placeInlineImage(op, index)
+	case "ID", "EI":
+		// interpretSource consumes ID and EI as part of BI.
+		return fmt.Errorf("inline image keyword %s outside a BI sequence", op.Operator)
 	case "BMC", "BDC", "EMC", "MP", "DP":
 		return c.unsupported(op, "Marked-content properties and optional-content visibility are retained without evaluation")
 	case "BX", "EX":

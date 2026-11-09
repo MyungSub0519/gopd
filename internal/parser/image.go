@@ -1,8 +1,13 @@
 package parser
 
-import "fmt"
+import (
+	"fmt"
 
-// DetailedImage is one execution of an image XObject; bytes belong to ImageResource.
+	"github.com/MyungSub0519/gopd/internal/common/syntax"
+)
+
+// DetailedImage is one placement of an image XObject or inline image; bytes
+// belong to ImageResource.
 type DetailedImage struct {
 	Source   ElementSource
 	Resource int
@@ -10,6 +15,9 @@ type DetailedImage struct {
 	State    GraphicsState
 }
 
+// ImageResource is an image's metadata and the location of its encoded bytes.
+// An inline image has a zero ID; its Object spans the BI dictionary and holds
+// the Stream, whose StartKeyword is ID and EndKeyword is EI.
 type ImageResource struct {
 	Object           Object
 	ID               ObjectID
@@ -82,6 +90,70 @@ func (c *contentInterpreter) image(image ImageResource, op Operation, index int,
 		resource = c.b.emitImageResource(image)
 		c.b.images[object.Span] = resource
 	}
+	return c.placeImage(resource, op, index, optional)
+}
+
+// inlineImage reads the dictionary, payload and EI after a BI operator and
+// stores the located image as the operator's single operand, so that execute
+// can place it like an image XObject.
+func (c *contentInterpreter) inlineImage(scanner *syntax.ContentScanner, op *Operation) error {
+	if len(op.Operands) != 0 {
+		return fmt.Errorf("BI takes no operands")
+	}
+	stream, values, err := scanner.InlineImage(c.b.maxValues - c.b.semanticValues)
+	c.b.semanticValues += values
+	if err != nil {
+		return err
+	}
+	op.Operands = []Object{{Span: stream.DictionarySpan, Value: stream}}
+	return nil
+}
+
+// placeInlineImage registers an inline image read by inlineImage. Its payload
+// is located but, as for image XObjects, never decoded.
+func (c *contentInterpreter) placeInlineImage(op Operation, index int) error {
+	if !c.b.wants(ContentImages) {
+		return nil
+	}
+	object := op.Operands[0]
+	resource, exists := c.b.images[object.Span]
+	if !exists {
+		stream := object.Value.(Stream)
+		image := ImageResource{Object: object, Stream: stream}
+		for _, entry := range []struct {
+			short, full Name
+			target      *int
+		}{{"W", "Width", &image.Width}, {"H", "Height", &image.Height}, {"BPC", "BitsPerComponent", &image.BitsPerComponent}} {
+			value, ok := syntax.InlineImageEntry(stream.Dictionary, entry.short, entry.full)
+			if !ok {
+				continue
+			}
+			n, err := Int(value)
+			if err != nil || n < 0 || n > 1<<30 {
+				return fmt.Errorf("invalid inline image /%s", entry.short)
+			}
+			*entry.target = int(n)
+		}
+		image.ColorSpace, _ = syntax.InlineImageEntry(stream.Dictionary, "CS", "ColorSpace")
+		if mask, ok := syntax.InlineImageEntry(stream.Dictionary, "IM", "ImageMask"); ok {
+			v, ok := mask.Value.(Boolean)
+			if !ok {
+				return fmt.Errorf("invalid inline image /IM")
+			}
+			image.ImageMask = bool(v)
+		}
+		if err := c.b.chargeSemantic("inline image", object.Span); err != nil {
+			return err
+		}
+		resource = c.b.emitImageResource(image)
+		c.b.images[object.Span] = resource
+	}
+	return c.placeImage(resource, op, index, false)
+}
+
+// placeImage emits one placement of a registered image resource. Images are
+// drawn into the unit square, so the CTM alone gives the placement.
+func (c *contentInterpreter) placeImage(resource int, op Operation, index int, optional bool) error {
 	placement := DetailedImage{Source: c.source(op, index), Resource: resource, Matrix: c.state.graphics.CTM, State: c.state.graphics}
 	if optional {
 		placement.State.Complete = false

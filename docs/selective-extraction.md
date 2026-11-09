@@ -139,7 +139,7 @@ for _, resource := range result.ImageResources {
 
 옵션 오류와 입력 구조를 읽는 단계의 오류는 `nil` 결과와 오류를 반환합니다. 페이지 콘텐츠나 리소스 해석 도중 실패하면 부분 `Result`와 오류가 함께 반환될 수 있습니다. `result != nil`이나 `page.Complete`만으로 성공을 판단하지 말고 항상 `err`부터 확인합니다.
 
-`DecodeComplete`는 문자 해석, `Position.Complete`는 요청한 위치 계산, `page.Complete`와 `Diagnostics`는 요청한 해석의 지원 범위를 나타냅니다. `Diagnostics[i].Page == -1`은 문서 전체 진단입니다. 지원하지 않는 효과가 오류 대신 진단으로 반환될 수 있습니다. 암호화 콘텐츠와 인라인 이미지도 여전히 지원이 제한됩니다.
+`DecodeComplete`는 문자 해석, `Position.Complete`는 요청한 위치 계산, `page.Complete`와 `Diagnostics`는 요청한 해석의 지원 범위를 나타냅니다. `Diagnostics[i].Page == -1`은 문서 전체 진단입니다. 지원하지 않는 효과가 오류 대신 진단으로 반환될 수 있습니다. 암호화 콘텐츠도 여전히 지원이 제한됩니다. 인라인 이미지는 이미지 XObject와 같은 `Images`·`ImageResources`로 반환되며 `ID`는 0입니다.
 
 선택하지 않은 리소스의 유효성이나 건너뛴 연산의 의미는 검증하지 않을 수 있습니다. 선택 추출의 성공은 PDF 전체 유효성 검사를 통과했다는 뜻이 아닙니다. 반면 순회하는 콘텐츠의 구문, 명령·피연산자 수, 필요한 참조와 디코딩에는 제한이 계속 적용됩니다. 같은 Form을 반복 실행한 작업도 누적 계산하며, 한도 초과는 `errors.Is(err, gopd.ErrLimit)`로 확인합니다.
 

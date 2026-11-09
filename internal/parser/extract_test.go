@@ -202,9 +202,9 @@ func TestExtractReviewLexicalErrorKeepsPartialOutput(t *testing.T) {
 	if err == nil || got == nil || len(got.Pages) != 1 || len(got.Pages[0].Graphics) != 1 || got.Pages[0].Complete {
 		t.Fatalf("expected graphic before lexical error: result=%+v err=%v", got, err)
 	}
-	legacy, err := Read(bytes.NewReader(data), int64(len(data)))
-	if err == nil || legacy == nil || len(legacy.Graphics) != 0 {
-		t.Fatalf("legacy full-lex behavior changed: result=%+v err=%v", legacy, err)
+	detailed, err := Read(bytes.NewReader(data), int64(len(data)))
+	if err == nil || detailed == nil || len(detailed.Graphics) != 1 {
+		t.Fatalf("expected detailed graphic before lexical error: result=%+v err=%v", detailed, err)
 	}
 }
 
@@ -341,19 +341,27 @@ func TestExtractImageSource(t *testing.T) {
 	}
 }
 
-func TestExtractInlineImageErrorWithoutProvenance(t *testing.T) {
+func TestExtractInlineImageWithoutProvenance(t *testing.T) {
 	data := semanticFixture(
 		`<< /Type /Catalog /Pages 2 0 R >>`,
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 10 10] >>`,
 		`<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>`,
-		semanticStream("", `BI /W 1 /H 1 ID x EI`),
+		semanticStream("", `BI /W 1 /H 1 ID x EI 0 0 1 1 re f`),
 	)
-	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{})
-	if got == nil || got.Document != nil || err == nil {
-		t.Fatalf("unexpected inline result: %v", err)
+	got, err := ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentImages | ContentGraphics})
+	if err != nil || got.Document != nil {
+		t.Fatalf("unexpected inline result: %+v %v", got, err)
 	}
-	if strings.Contains(err.Error(), "source is retained") {
-		t.Fatal("error claims unavailable source access")
+	page := got.Pages[0]
+	if !page.Complete || len(page.Images) != 1 || len(page.Graphics) != 1 || len(got.ImageResources) != 1 {
+		t.Fatalf("inline image page = %+v resources=%+v", page, got.ImageResources)
+	}
+	if resource := got.ImageResources[0]; resource.Width != 1 || resource.Height != 1 || resource.Object != nil {
+		t.Fatalf("inline image resource = %+v", resource)
+	}
+	got, err = ParseReader(bytes.NewReader(data), int64(len(data)), ParseOptions{Content: ContentGraphics})
+	if err != nil || len(got.Pages[0].Graphics) != 1 || len(got.ImageResources) != 0 {
+		t.Fatalf("unselected inline image: %+v %v", got, err)
 	}
 }
 
